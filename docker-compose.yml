@@ -38,7 +38,7 @@ services:
       TZ: America/Los_Angeles
 
     ports:
-      - "3306:3306"
+      - "3306:3312"
 
 
 
