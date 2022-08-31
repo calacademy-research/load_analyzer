@@ -1,0 +1,44 @@
+version: "3.4"
+
+services:
+
+  # App Service
+  app:
+    # Configuration for building the docker image for the service
+    build:
+      context: . # Use an image built from the specified dockerfile in the current directory.
+      dockerfile: Dockerfile
+
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    volumes:
+        - ~/.ssh:/root/.ssh
+    links:
+      - mysql:mysql
+    extra_hosts:
+     - "alice:10.1.10.183"
+     - "rosalindf:10.1.10.182"
+     - "tdobz:10.1.10.205"
+
+
+#
+  mysql:
+    restart: unless-stopped
+    image: mysql:8
+    container_name: mysql
+    command: "--default-authentication-plugin=mysql_native_password"
+    volumes:
+      - ./data:/var/lib/mysql:delegated
+#      - ./MonarchBackup2022-01-12.sql:/docker-entrypoint-initdb.d/MonarchBackup2022-01-12.sql
+
+    environment:
+      MYSQL_ROOT_PASSWORD: qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf
+      MYSQL_DATABASE: load
+      TZ: America/Los_Angeles
+
+    ports:
+      - "3306:3306"
+
+
+
