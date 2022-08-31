@@ -4,7 +4,7 @@ import subprocess
 import sys
 import time
 
-db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3306, 'host.docker.internal', 'load')
+db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'host.docker.internal', 'load')
 
 HOSTS = ['rosalindf', 'alice', 'tdobz']
 ps_arg_tuples = [
