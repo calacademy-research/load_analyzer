@@ -138,6 +138,8 @@ while True:
                     args.append(element)
             args.append(int(time.time()))
             args.append(time.strftime('%Y-%m-%d %H:%M:%S'))
+            sys.stderr.write(f"time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+
 
             args.append(host)
 
