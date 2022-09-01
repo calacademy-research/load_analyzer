@@ -14,11 +14,7 @@ class InvalidFilenameError(Exception):
 class DataInvariantException(Exception):
     pass
 
-# ector.connect(user=botany_importer_config.USER,
-#                                               password=botany_importer_config.PASSWORD,
-#                                               host=botany_importer_config.SPECIFY_DATABASE_HOST,
-#                                               port=botany_importer_config.SPECIFY_DATABASE_PORT,
-#                                               database=botany_importer_config.SPECIFY_DATABASE)
+
 class DbUtils:
     def __init__(self, database_user, database_password, database_port, database_host, database_name):
         self.database_user = database_user

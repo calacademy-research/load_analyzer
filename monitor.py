@@ -3,8 +3,9 @@ import db_utils
 import subprocess
 import sys
 import time
+db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
+# db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '127.0.0.1', 'load')
 
-db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '10.1.10.123', 'load')
 HOSTS = ['rosalindf', 'alice', 'tdobz']
 ps_arg_tuples = [
     ('pid', 'process ID'),
@@ -86,7 +87,7 @@ sql = """create table if not exists processes (
         bdstart varchar(100),
         args varchar(5000) not null,
         snapshot_time_epoch int not null,
-        snapshot_datetime date not null,
+        snapshot_datetime datetime not null,
         host varchar(20))
 """
 db.execute(sql)
