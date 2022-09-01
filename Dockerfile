@@ -1,9 +1,8 @@
 # Dockerfile References: https://docs.docker.com/engine/reference/builder/
 
-# Start from python:3.8-alpine base image
 FROM python:3
 
-
+ENV TZ="America/Los_Angeles"
 # Make dir app
 RUN mkdir /app
 WORKDIR /app

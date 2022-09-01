@@ -93,7 +93,7 @@ sql = """create table if not exists processes (
 db.execute(sql)
 while True:
     for host in HOSTS:
-        ssh = subprocess.Popen(["ssh", f"admin@{host}", COMMAND],
+        ssh = subprocess.Popen(["ssh", f"jrussack@{host}", COMMAND],
                                shell=False,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
