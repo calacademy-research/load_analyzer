@@ -4,8 +4,7 @@ import subprocess
 import sys
 import time
 
-db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'host.docker.internal', 'load')
-
+db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '10.1.10.123', 'load')
 HOSTS = ['rosalindf', 'alice', 'tdobz']
 ps_arg_tuples = [
     ('pid', 'process ID'),
@@ -86,13 +85,14 @@ sql = """create table if not exists processes (
         etimes int not null,
         bdstart varchar(100),
         args varchar(5000) not null,
-        snapshot_time int not null,
+        snapshot_time_epoch int not null,
+        snapshot_datetime date not null,
         host varchar(20))
 """
 db.execute(sql)
 while True:
     for host in HOSTS:
-        ssh = subprocess.Popen(["ssh", host, COMMAND],
+        ssh = subprocess.Popen(["ssh", f"admin@{host}", COMMAND],
                                shell=False,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
@@ -100,8 +100,6 @@ while True:
         if result == []:
             error = ssh.stderr.readlines()
             sys.stderr.write(f"error: {error}\n")
-
-
 
         for line in result[1:]:
             string_line = line.strip().decode("utf-8")
@@ -129,7 +127,7 @@ while True:
             # print(f"raw: {string_line}")
             print(".", end='')
 
-            sql = """insert into processes (pid,username,comm,cputimes,rss,vsz,thcount,etimes,bdstart,args,snapshot_time, host) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
+            sql = """insert into processes (pid,username,comm,cputimes,rss,vsz,thcount,etimes,bdstart,args,snapshot_time_epoch, snapshot_datetime, host) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
             args = []
             for element in sarray:
                 try:
@@ -138,7 +136,10 @@ while True:
                 except Exception:
                     args.append(element)
             args.append(int(time.time()))
+            args.append(time.strftime('%Y-%m-%d %H:%M:%S'))
+
             args.append(host)
+
             cursor = db.get_cursor()
             cursor.execute(sql, args)
             db.commit()
