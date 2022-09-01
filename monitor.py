@@ -92,6 +92,8 @@ sql = """create table if not exists processes (
 """
 db.execute(sql)
 while True:
+    epoch_time =int(time.time())
+    datetime_time = time.strftime('%Y-%m-%d %H:%M:%S')
     for host in HOSTS:
         ssh = subprocess.Popen(["ssh", f"admin@{host}", COMMAND],
                                shell=False,
@@ -136,9 +138,9 @@ while True:
                     args.append(intelem)
                 except Exception:
                     args.append(element)
-            args.append(int(time.time()))
-            args.append(time.strftime('%Y-%m-%d %H:%M:%S'))
-            
+            args.append(epoch_time)
+            args.append(datetime_time)
+
 
             args.append(host)
 
