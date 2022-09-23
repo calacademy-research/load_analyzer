@@ -48,6 +48,7 @@ def get_process_dataframe():
     df['snapshot_datetime' + str('_date')] = df['snapshot_datetime'].dt.strftime("%m/%d/%y")
     df.sort_values(by='snapshot_datetime', inplace=True)
     df['cpu_diff'] = df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()
+    df['seconds_diff'] = df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()
     return df
 
 
@@ -85,14 +86,13 @@ def show_percent_usage_by(df, by="username"):
 
 
 def show_usage_graph(df):
+    df.dropna(inplace=True)
+    df['cpu_diff'] = df['cpu_diff'].div(df['seconds_diff'])
     df_agg = df.groupby('snapshot_datetime'). \
         agg({'pid': 'count',
              'cpu_diff': 'sum'}). \
         reset_index().sort_values(by='snapshot_datetime', ascending=True)
-        # rename(columns={'cputimes': 'cputimes_sum', 'pid': 'pid_count'}). \
 
-    # print(df_agg2.head())
-    # df_agg = df_agg.head(8)
     start_date = df['snapshot_datetime_date'].min()
     end_date = df['snapshot_datetime_date'].max()
 
@@ -103,7 +103,7 @@ def show_usage_graph(df):
                   title=f'Total CPU Time consumption {start_date} - {end_date}')
     fig.show()
 
-
+#
 # df = get_process_dataframe()
 # dbfile = open('dataframe_pickle.pkl', 'ab')
 #
