@@ -46,11 +46,13 @@ def get_process_dataframe():
 
     df['snapshot_datetime'] = pd.to_datetime(df['snapshot_datetime'], dayfirst=True)
     df['snapshot_datetime' + str('_date')] = df['snapshot_datetime'].dt.strftime("%m/%d/%y")
-
+    df.sort_values(by='snapshot_datetime', inplace=True)
+    df['cpu_diff'] = df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()
     return df
 
 
-def show_usage_graph(df, by="username"):
+# Arguments are 'comm' for by-command and 'username' (default) for by-user
+def show_percent_usage_by(df, by="username"):
     # ** drop rows where username == args == pid == host and
     # retain the record with the highest cpu time.
 
@@ -82,42 +84,24 @@ def show_usage_graph(df, by="username"):
     fig.show()
 
 
-def time_series(df):
-    # time_samples = df['snapshot_time_epoch'].unique()
-    # print(f"{time_samples}")
-    time_slots = df.sort_values('snapshot_time_epoch', ascending=True).groupby(['snapshot_time_epoch'])
-    prev_slot = None
-    new_df = df
-    new_df['elapsed_time'] = 0
-    new_df.set_index(['pid','host','snapshot_time_epoch'])
-    for epoch_time, time_slot_epoch in time_slots:
-        if prev_slot is not None:
-            merged = pd.merge(prev_slot[['pid', 'host', 'cputimes']],
-                              time_slot_epoch[['pid', 'host', 'cputimes', 'snapshot_time_epoch']],
-                              how='right',
-                              on=['pid', 'host'],
-                              suffixes=('_prev', '_cur')
-                              )
-            merged['elapsed_time'] = merged['cputimes_cur'] - merged['cputimes_prev']
-            merged.drop('cputimes_cur', axis=1, inplace=True)
-            merged.drop('cputimes_prev', axis=1, inplace=True)
-            merged.set_index(['pid', 'host', 'snapshot_time_epoch'])
-            merged = merged[merged.elapsed_time != 0]
-            # new_df = pd.merge(new_df,
-            #                   merged[['pid', 'snapshot_time_epoch', 'host', 'elapsed_time']],
-            #                   how='right',
-            #                   on=['pid', 'snapshot_time_epoch', 'host']
-            #                   )
-            new_df = new_df.combine_first(merged)
+def show_usage_graph(df):
+    df_agg = df.groupby('snapshot_datetime'). \
+        agg({'pid': 'count',
+             'cpu_diff': 'sum'}). \
+        reset_index().sort_values(by='snapshot_datetime', ascending=True)
+        # rename(columns={'cputimes': 'cputimes_sum', 'pid': 'pid_count'}). \
 
-            print(f"df")
-        prev_slot = time_slot_epoch
+    # print(df_agg2.head())
+    # df_agg = df_agg.head(8)
+    start_date = df['snapshot_datetime_date'].min()
+    end_date = df['snapshot_datetime_date'].max()
 
-    print(f"{df.head(5)}")
-    print(f"{df.info()}")
-    # for time_sample in time_samples:
-    #     print(f"time sample: {time_sample}")
-    print(f"done.")
+    # print(df_agg2.snapshot_datetime.min())
+    fig = px.line(df_agg,
+                  x='snapshot_datetime',
+                  y='cpu_diff',
+                  title=f'Total CPU Time consumption {start_date} - {end_date}')
+    fig.show()
 
 
 # df = get_process_dataframe()
@@ -129,6 +113,6 @@ def time_series(df):
 dbfile = open('dataframe_pickle.pkl', 'rb')
 df = pickle.load(dbfile)
 print("Pickle loaded...")
+show_usage_graph(df)
 # show_usage_graph(df,'comm')
 # show_usage_graph(df,'username')
-time_series(df)
