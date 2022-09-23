@@ -85,8 +85,11 @@ def show_percent_usage_by(df, by="username"):
     fig.show()
 
 
-def show_usage_graph(df):
+def show_usage_graph(df, host=None):
     df.dropna(inplace=True)
+    if host is not None:
+        df.drop(df[df.host != host].index, inplace=True)
+
     df['cpu_diff'] = df['cpu_diff'].div(df['seconds_diff'])
     df_agg = df.groupby('snapshot_datetime'). \
         agg({'pid': 'count',
@@ -103,6 +106,7 @@ def show_usage_graph(df):
                   title=f'Total CPU Time consumption {start_date} - {end_date}')
     fig.show()
 
+
 #
 # df = get_process_dataframe()
 # dbfile = open('dataframe_pickle.pkl', 'ab')
@@ -113,6 +117,6 @@ def show_usage_graph(df):
 dbfile = open('dataframe_pickle.pkl', 'rb')
 df = pickle.load(dbfile)
 print("Pickle loaded...")
-show_usage_graph(df)
+show_usage_graph(df, 'alice')
 # show_usage_graph(df,'comm')
 # show_usage_graph(df,'username')
