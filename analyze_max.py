@@ -47,8 +47,17 @@ def get_process_dataframe():
     df['snapshot_datetime'] = pd.to_datetime(df['snapshot_datetime'], dayfirst=True)
     df['snapshot_datetime' + str('_date')] = df['snapshot_datetime'].dt.strftime("%m/%d/%y")
     df.sort_values(by='snapshot_datetime', inplace=True)
-    df['cpu_diff'] = df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()
-    df['seconds_diff'] = df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()
+    ## Feature engineering: calculate the normalized difference in CPU Time (in seconds) between sampling times by unique process and host
+
+    df['cpu_diff'] = (df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()).fillna(0)
+
+    df['seconds_diff'] = (
+                df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
+
+    df['cpu_norm'] = (df['cpu_diff'].div(df['seconds_diff'])).fillna(0)
+    df.drop(['cpu_diff', 'seconds_diff'], axis=1, inplace=True)  ## Removing redundant fields
+
+
     return df
 
 
@@ -73,6 +82,13 @@ def show_percent_usage_by(df, by="username"):
         rename(columns={'cputimes': 'cputimes_sum', 'pid': 'pid_count'}). \
         sort_values(by='cputimes_sum', ascending=False)
     # print(df_agg2.head())
+
+    # hadrien's agg
+    # # This returns comm with the max cpu_norm for each host and at each sampling instance.
+    # test = df_bar_d.sort_values('cpu_norm').drop_duplicates(['snapshot_time_epoch', 'host'], keep='last')
+    # test.sort_values(by='snapshot_time_epoch', inplace=True)
+
+
     df_agg = df_agg.head(8)
     start_date = df_max_process_usage_only['snapshot_datetime_date'].min()
     end_date = df_max_process_usage_only['snapshot_datetime_date'].max()
@@ -90,10 +106,16 @@ def show_usage_graph(df, host=None):
     if host is not None:
         df.drop(df[df.host != host].index, inplace=True)
 
-    df['cpu_diff'] = df['cpu_diff'].div(df['seconds_diff'])
+    # df['cpu_diff'] = df['cpu_diff'].div(df['seconds_diff'])
+    # max_command = df.groupby(['comm','snapshot_datetime'])['cpu_diff'].idmax()
+    # print(f"{max_command.head(10)}")
+
+    # df_rosalindf = df[['username', 'host', 'comm', 'cpu_diff', 'snapshot_time_epoch']].loc[df['host'] == 'rosalindf']
+    # df_rosalindf = df_rosalindf.loc[df_rosalindf['cpu_diff'] == df_rosalindf['cpu_diff'].max()]
+
     df_agg = df.groupby('snapshot_datetime'). \
         agg({'pid': 'count',
-             'cpu_diff': 'sum'}). \
+             'cpu_norm': 'sum'}). \
         reset_index().sort_values(by='snapshot_datetime', ascending=True)
 
     start_date = df['snapshot_datetime_date'].min()
@@ -102,10 +124,26 @@ def show_usage_graph(df, host=None):
     # print(df_agg2.snapshot_datetime.min())
     fig = px.line(df_agg,
                   x='snapshot_datetime',
-                  y='cpu_diff',
-                  title=f'Total CPU Time consumption {start_date} - {end_date}')
+                  y='cpu_norm',
+                  title=f'Total CPU Time consumption {start_date} - {end_date} for host: {host}')
     fig.show()
 
+
+def hadrien(df):
+
+    ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
+
+    # sample_time = df.snapshot_time_epoch.unique()  # 600 unique sampling intervals
+    df_grouped = df.groupby(['snapshot_time_epoch', 'host', 'comm'])[
+        'cpu_norm'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
+    df_grouped = df_grouped[df_grouped['cpu_norm'] != 0]  # drops where the diff = 0
+    df_max = df_grouped.sort_values('cpu_norm').drop_duplicates(['snapshot_time_epoch', 'host'],
+                                                                keep='last')  # Filter for max cpu diff and id the process command
+
+
+    df_max.sort_values(by='snapshot_time_epoch', inplace=True)
+
+    return df_max
 
 #
 # df = get_process_dataframe()
@@ -114,9 +152,12 @@ def show_usage_graph(df, host=None):
 # pickle.dump(df, dbfile)
 # dbfile.close()
 # sys.exit(0)
+
 dbfile = open('dataframe_pickle.pkl', 'rb')
 df = pickle.load(dbfile)
 print("Pickle loaded...")
 show_usage_graph(df, 'alice')
+df_max = hadrien(df)
+print(f"{df_max.head(2)}")
 # show_usage_graph(df,'comm')
 # show_usage_graph(df,'username')
