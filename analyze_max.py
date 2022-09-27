@@ -52,11 +52,10 @@ def get_process_dataframe():
     df['cpu_diff'] = (df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()).fillna(0)
 
     df['seconds_diff'] = (
-                df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
+            df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
 
     df['cpu_norm'] = (df['cpu_diff'].div(df['seconds_diff'])).fillna(0)
     df.drop(['cpu_diff', 'seconds_diff'], axis=1, inplace=True)  ## Removing redundant fields
-
 
     return df
 
@@ -87,7 +86,6 @@ def show_percent_usage_by(df, by="username"):
     # # This returns comm with the max cpu_norm for each host and at each sampling instance.
     # test = df_bar_d.sort_values('cpu_norm').drop_duplicates(['snapshot_time_epoch', 'host'], keep='last')
     # test.sort_values(by='snapshot_time_epoch', inplace=True)
-
 
     df_agg = df_agg.head(8)
     start_date = df_max_process_usage_only['snapshot_datetime_date'].min()
@@ -130,20 +128,22 @@ def show_usage_graph(df, host=None):
 
 
 def hadrien(df):
-
     ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
 
     # sample_time = df.snapshot_time_epoch.unique()  # 600 unique sampling intervals
-    df_grouped = df.groupby(['snapshot_time_epoch', 'host', 'comm'])[
+    df_grouped = df.groupby(['snapshot_time_epoch', 'host', 'comm','username'])[
         'cpu_norm'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
     df_grouped = df_grouped[df_grouped['cpu_norm'] != 0]  # drops where the diff = 0
+    df_max_0 = df_grouped.groupby(['snapshot_time_epoch', 'comm', 'host','username']).agg({'cpu_norm': 'sum'}).reset_index()
+    top_users_and_command = df_max_0[df_max_0['cpu_norm'] > 2]
+
     df_max = df_grouped.sort_values('cpu_norm').drop_duplicates(['snapshot_time_epoch', 'host'],
                                                                 keep='last')  # Filter for max cpu diff and id the process command
-
 
     df_max.sort_values(by='snapshot_time_epoch', inplace=True)
 
     return df_max
+
 
 #
 # df = get_process_dataframe()
@@ -156,7 +156,7 @@ def hadrien(df):
 dbfile = open('dataframe_pickle.pkl', 'rb')
 df = pickle.load(dbfile)
 print("Pickle loaded...")
-show_usage_graph(df, 'alice')
+show_usage_graph(df, 'rosalindf')
 df_max = hadrien(df)
 print(f"{df_max.head(2)}")
 # show_usage_graph(df,'comm')
