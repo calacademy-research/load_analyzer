@@ -4,7 +4,13 @@ from sqlalchemy import create_engine
 import pandas as pd
 import plotly.express as px
 import pickle
+import dash
+from flask import Flask
+import dash_html_components as html
+import dash_core_components as dcc
+import dash_bootstrap_components as dbc
 
+app = None
 '''
     PID: The process ID (every process is assigned a number as an ID).
     Username: unique users on the servers
@@ -104,13 +110,6 @@ def show_usage_graph(df, host=None):
     if host is not None:
         df.drop(df[df.host != host].index, inplace=True)
 
-    # df['cpu_diff'] = df['cpu_diff'].div(df['seconds_diff'])
-    # max_command = df.groupby(['comm','snapshot_datetime'])['cpu_diff'].idmax()
-    # print(f"{max_command.head(10)}")
-
-    # df_rosalindf = df[['username', 'host', 'comm', 'cpu_diff', 'snapshot_time_epoch']].loc[df['host'] == 'rosalindf']
-    # df_rosalindf = df_rosalindf.loc[df_rosalindf['cpu_diff'] == df_rosalindf['cpu_diff'].max()]
-
     df_agg = df.groupby('snapshot_datetime'). \
         agg({'pid': 'count',
              'cpu_norm': 'sum'}). \
@@ -127,37 +126,125 @@ def show_usage_graph(df, host=None):
     fig.show()
 
 
-def hadrien(df):
-    ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
-
-    # sample_time = df.snapshot_time_epoch.unique()  # 600 unique sampling intervals
-    df_grouped = df.groupby(['snapshot_time_epoch', 'host', 'comm','username'])[
+def common_group(df):
+    df_grouped = df.groupby(['snapshot_time_epoch', 'host', 'comm', 'username'])[
         'cpu_norm'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
     df_grouped = df_grouped[df_grouped['cpu_norm'] != 0]  # drops where the diff = 0
-    df_max_0 = df_grouped.groupby(['snapshot_time_epoch', 'comm', 'host','username']).agg({'cpu_norm': 'sum'}).reset_index()
-    top_users_and_command = df_max_0[df_max_0['cpu_norm'] > 2]
+    return df_grouped
 
-    df_max = df_grouped.sort_values('cpu_norm').drop_duplicates(['snapshot_time_epoch', 'host'],
-                                                                keep='last')  # Filter for max cpu diff and id the process command
+def top_command(df):
+    ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
 
-    df_max.sort_values(by='snapshot_time_epoch', inplace=True)
+    top_command = common_group(df).sort_values('cpu_norm').drop_duplicates(['snapshot_time_epoch', 'host'],
+                                                                           keep='last')  # Filter for max cpu diff and id the process command
+    top_command.sort_values(by='snapshot_time_epoch', inplace=True)
 
-    return df_max
+    return top_command
 
 
-#
-# df = get_process_dataframe()
-# dbfile = open('dataframe_pickle.pkl', 'ab')
-#
-# pickle.dump(df, dbfile)
-# dbfile.close()
-# sys.exit(0)
+def create_app():
+    external_stylesheets = [dbc.themes.BOOTSTRAP, 'https://codepen.io/chriddyp/pen/bWLwgP.css']
+    global server
+    server = Flask(__name__)
 
-dbfile = open('dataframe_pickle.pkl', 'rb')
-df = pickle.load(dbfile)
-print("Pickle loaded...")
-show_usage_graph(df, 'rosalindf')
-df_max = hadrien(df)
-print(f"{df_max.head(2)}")
+    app = dash.Dash(__name__,
+                    title='Load analyzer',
+                    prevent_initial_callbacks=True,
+                    external_stylesheets=external_stylesheets,
+                    server=server)
+    return app
+
+
+def top_users_commands(df):
+    df_max_0 = common_group(df).groupby(['snapshot_time_epoch', 'comm', 'host', 'username']).agg(
+        {'cpu_norm': 'sum'}).reset_index()
+    top_users_and_commands = df_max_0[df_max_0['cpu_norm'] > 2]
+    return top_users_and_commands
+
+
+def app_setup(df):
+    global app
+    app = create_app()
+    TOPLEVEL_STYLE = {
+        "width": "160rem"
+
+    }
+    start_date = df['snapshot_datetime_date'].min()
+    end_date = df['snapshot_datetime_date'].max()
+
+    top_users_commands_df = top_users_commands(df)
+    top_command_df = top_command(df)
+    fig = px.line(top_command_df,
+                  x='snapshot_time_epoch',
+                  y='cpu_norm',
+                  title=f'Total CPU Time consumption {start_date} - {end_date}')
+
+    main_div = html.Div(style=TOPLEVEL_STYLE,
+                        className="row",
+                        children=[
+                            # html.Div(className="three columns", children=[sidebar_div()]),
+                            html.Div(className="nine columns",
+                                     style={'overflow': 'auto',
+                                            'overflow': 'visible'},
+                                     children=[dcc.Graph(
+                                         id='example-graph',
+                                         figure=fig
+                                     )])
+                        ])
+
+    app.layout = html.Div(
+        children=
+        [
+            dcc.Input(id="loading-input-2",
+                      style={"visibility": "hidden"},
+                      value='Input triggers nested spinner'),
+            dcc.Loading(
+                id="loading-2",
+                fullscreen=True,
+
+                children=[html.Div([html.Div(id="loading-output-2")]),
+                          main_div],
+                type="circle",
+            )
+        ]
+    )
+
+
+
+
+
+
+
+# show_usage_graph(df, 'rosalindf')
+# top_command = top_command(df)
+# top_users_and_commands = top_users_and_commands(df)
+
 # show_usage_graph(df,'comm')
 # show_usage_graph(df,'username')
+def setup():
+
+    dbfile = open('dataframe_pickle.pkl', 'rb')
+    df = pickle.load(dbfile)
+
+    #
+    # df = get_process_dataframe()
+    # dbfile = open('dataframe_pickle.pkl', 'ab')
+    #
+    # pickle.dump(df, dbfile)
+    # dbfile.close()
+    # sys.exit(0)
+
+    if app is None:
+        # data_setup()
+        app_setup(df)
+
+
+if __name__ == '__main__':
+    print("Running internal server")
+    setup()
+    app.run_server(debug=True)
+else:
+    print(f"Running external server: {__name__}")
+    setup()
+
+print("exiting.")
