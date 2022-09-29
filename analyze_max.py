@@ -181,7 +181,7 @@ def app_setup(df):
         cur_datetime = row['snapshot_datetime']
         tops = top_users_commands_df[top_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(by='cpu_norm',ascending=False)
         for sindex,srow in tops.iterrows():
-            entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']}<br>"
+            entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']} command: {srow['comm']}"
 
         all_tuples.append(entry)
 
@@ -197,11 +197,12 @@ def app_setup(df):
         x=top_command_df['snapshot_datetime'],
         y=top_command_df['cpu_norm'],
         customdata=customdata,
-        hovertemplate=('<i>y</i>: %{y:.2f}' + \
-                       '<br><b>foo</b>: %{customdata}<br>' + \
+        hovertemplate=('<br><b>Time:</b>: %{x}<br>'+ \
+                       '<i>Total load</i>: %{y:.2f}' + \
+                       '<br>%{customdata}'
                        # '<br><b>also foo</b>: %{customdata[1]}<br>' + \
                        # '<br><b>more foo</b>: %{customdata[2]}<br>' + \
-                       '<br><b>x</b>: %{x}<br>')
+                       )
     )
 
     fig.add_trace(trace)
