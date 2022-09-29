@@ -73,14 +73,27 @@ def read_tsv():
 
 def initial_data_wrangling(raw_dataframe):
     df = raw_dataframe
+
     df['snapshot_datetime'] = pd.to_datetime(df['snapshot_datetime'], dayfirst=True)
     df['snapshot_datetime' + str('_date')] = df['snapshot_datetime'].dt.strftime("%m/%d/%y")
-    df.sort_values(by='snapshot_datetime', inplace=True)
-    ## Feature engineering: calculate the normalized difference in CPU Time (in seconds) between sampling times by unique process and host
+    df['snapshot_datetime' + str('_daytime')] = df['snapshot_datetime'].dt.day_name() + " " + df[
+        'snapshot_datetime'].dt.strftime('%d') + ", " + df['snapshot_datetime'].dt.strftime('%H')
+    df = df.sort_values(by='snapshot_datetime', ascending=True)
+    ## Converting bytes to Gb for rss and vsz
+    df['rss'] = (df['rss'] / 1000000000).round(2)
+    df['vsz'] = (df['vsz'] / 1000000000).round(2)
+    ## This needs to happen before aggregating by time, otherwise the values will become distored (we're normalizing by seconds)
     df['cpu_diff'] = (df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()).fillna(0)
     df['seconds_diff'] = (
-            df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
+                df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
     df['cpu_norm'] = (df['cpu_diff'].div(df['seconds_diff'])).fillna(0)
+    ## Aggregating sampling time by 15 min; since snapshot_time_epoch correspond to discrete sampling point, I retained the max snapshot_time_epoch.
+    df = df.groupby(
+        [pd.Grouper(key='snapshot_datetime', freq='15min'), 'pid', 'username', 'comm', 'bdstart', 'args', 'host']).agg(
+        {'rss': 'sum', 'vsz': 'sum', 'thcount': 'sum', 'etimes': 'sum', 'cputimes': 'sum', 'snapshot_time_epoch': 'max',
+         'cpu_diff': 'sum', 'seconds_diff': 'sum', 'cpu_norm': 'sum'}).reset_index()
+    df = df[df['cpu_norm'] != 0]  ## Filtering out all rows where cpu_norm = 0.
+
     df.drop(['cpu_diff', 'seconds_diff'], axis=1, inplace=True)  ## Removing redundant fields
 
     return df
