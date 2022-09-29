@@ -4,6 +4,7 @@ from sqlalchemy import create_engine
 import pandas as pd
 import plotly.express as px
 import pickle
+from dash import Dash, dcc, html, Input, Output
 import dash
 from flask import Flask
 import dash_html_components as html
@@ -57,7 +58,6 @@ def read_sql():
     return df
 
 
-
 ## *****ReadTSV******** Hadrien's contribution ********************
 def read_tsv():
     filepath = './processes.tsv'
@@ -84,7 +84,6 @@ def initial_data_wrangling(raw_dataframe):
     df.drop(['cpu_diff', 'seconds_diff'], axis=1, inplace=True)  ## Removing redundant fields
 
     return df
-
 
 
 # Arguments are 'comm' for by-command and 'username' (default) for by-user
@@ -174,19 +173,42 @@ def create_app():
                     prevent_initial_callbacks=True,
                     external_stylesheets=external_stylesheets,
                     server=server)
+
     return app
 
 
-def app_setup(df):
+def sidebar_div(df):
     global app
-    app = create_app()
-    TOPLEVEL_STYLE = {
-        "width": "160rem"
 
+    SIDEBAR_STYLE = {
+        "position": "fixed",
+        "top": 0,
+        "left": 0,
+        "bottom": 0,
+        "width": 150,
+        "backgroundColor": "#F5F5F5",
+        "padding": "2rem 1rem"
     }
-    start_date = df['snapshot_datetime_date'].min()
-    end_date = df['snapshot_datetime_date'].max()
 
+    @app.callback(
+        Output('dd-output-container', 'children'),
+        Input('demo-dropdown', 'value')
+    )
+    def update_output(value):
+        return f'You have selected {value}'
+
+    server_array = df['host'].unique()
+    server_select_dropdown = html.Div([dcc.Dropdown(server_array, server_array[0], id='demo-dropdown'),
+                                       html.Div(id='dd-output-container')])
+    return (html.Div(id='sidebar',
+                     style=SIDEBAR_STYLE,
+                     children=[server_select_dropdown]))
+
+
+def load_graph_one_server(hostname):
+    pass
+
+def main_content_div(df):
     top_users_commands_df = top_users_commands(df)
 
     top_command_df = top_command(df)
@@ -194,17 +216,15 @@ def app_setup(df):
     fig = go.Figure()
     all_tuples = []
 
-
     for index, row in top_command_df.iterrows():
-        entry=''
+        entry = ''
         cur_datetime = row['snapshot_datetime']
-        tops = top_users_commands_df[top_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(by='cpu_norm',ascending=False)
-        for sindex,srow in tops.iterrows():
+        tops = top_users_commands_df[top_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
+            by='cpu_norm', ascending=False)
+        for sindex, srow in tops.iterrows():
             entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']} command: {srow['comm']}"
 
         all_tuples.append(entry)
-
-
 
     # customdata = np.stack((top_command_df['host'], top_command_df['username'], top_command_df['cpu_norm']), axis=-1)
     # customdata = np.stack(top_command_df['username'], axis=-1)
@@ -216,7 +236,7 @@ def app_setup(df):
         x=top_command_df['snapshot_datetime'],
         y=top_command_df['cpu_norm'],
         customdata=customdata,
-        hovertemplate=('<br><b>Time:</b>: %{x}<br>'+ \
+        hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
                        '<i>Total load</i>: %{y:.2f}' + \
                        '<br>%{customdata}'
                        ),
@@ -227,17 +247,30 @@ def app_setup(df):
     )
 
     fig.add_trace(trace)
+
+    graph = dcc.Graph(id='example-graph', figure=fig)
+    return graph
+
+
+def app_setup(df):
+    global app
+    app = create_app()
+    TOPLEVEL_STYLE = {
+        "width": "160rem"
+
+    }
+    # start_date = df['snapshot_datetime_date'].min()
+    # end_date = df['snapshot_datetime_date'].max()
+
     main_div = html.Div(style=TOPLEVEL_STYLE,
                         className="row",
                         children=[
-                            # html.Div(className="three columns", children=[sidebar_div()]),
-                            html.Div(className="nine columns",
+                            html.Div(className="two columns", children=[sidebar_div(df)]),
+                            html.Div(className="right columns",
                                      style={'overflow': 'auto',
                                             'overflow': 'visible'},
-                                     children=[dcc.Graph(
-                                         id='example-graph',
-                                         figure=fig
-                                     )])
+                                     children=[main_content_div(df)]
+                                     )
                         ])
 
     app.layout = html.Div(
@@ -256,10 +289,11 @@ def app_setup(df):
             )
         ]
     )
+
+
 def setup(use_tsv=True):
     PICKLE_FILE = './dataframe_pickle.pkl'
     if not os.path.exists(PICKLE_FILE):
-
 
         print("CREATING NEW PKL CACHE")
         if use_tsv:
@@ -272,7 +306,6 @@ def setup(use_tsv=True):
         pickle.dump(df, dbfile)
         dbfile.close()
     else:
-        print("hi")
         dbfile = open(PICKLE_FILE, 'rb')
         df = pickle.load(dbfile)
         print(df.shape, f"\n", df.dtypes)
@@ -283,7 +316,7 @@ def setup(use_tsv=True):
 
 
 if __name__ == '__main__':
-    setup()
+    setup(False)
     print("Running internal server...")
     app.run_server(debug=True)
 else:
