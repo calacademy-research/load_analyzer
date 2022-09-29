@@ -200,9 +200,11 @@ def app_setup(df):
         hovertemplate=('<br><b>Time:</b>: %{x}<br>'+ \
                        '<i>Total load</i>: %{y:.2f}' + \
                        '<br>%{customdata}'
-                       # '<br><b>also foo</b>: %{customdata[1]}<br>' + \
-                       # '<br><b>more foo</b>: %{customdata[2]}<br>' + \
-                       )
+                       ),
+        line=dict(
+            color="blue",
+            width=1
+        )
     )
 
     fig.add_trace(trace)
