@@ -14,12 +14,12 @@ TODO: Make hosts configurable
 Todo: Make db password clean
 
 
-The problem is that I have no idea how often the servers are used, and for what, 
-and by whom. I’d like a list that boils down to “servers are used, on average, 
-at X% usage, with a peak of Y%. Here’s a list of users, sorted by activity level, 
-and here are the processes they ran, sorted by frequency-of-use. Here is the biggest 
-memory pig, here is the biggest CPU pig (latter two by user and by process).”
+todo: Pull down to select server? or display all N servers at once?
+todo: Should we pull any other stats? disk IO/ops?
+TODO: Dockerize server and place online
+todo: generate a per-user report - your core hours this month, top N processes, pie showing your %age ram 
+and %age CPU.
+TODO: Generate real time alerts for the top N when the system is at or near capacity.
+TODO: track GPU usage
+TOOD: Extract a single process and trace its CPU/memory usage over the lifetime of the run
 
-a sql database with a bunch of entries, each representing a snapshot in time of a 
-given server and what it’s up to. Extract the above stats from it, then maybe 
-spit out cute graphs that tells me who is doing what.

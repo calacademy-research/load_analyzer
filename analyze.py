@@ -11,8 +11,11 @@ import dash_core_components as dcc
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import numpy as np
+import sys
+import os
 
 app = None
+
 '''
     PID: The process ID (every process is assigned a number as an ID).
     Username: unique users on the servers
@@ -37,7 +40,7 @@ app = None
 '''
 
 
-def get_process_dataframe():
+def read_sql():
     host = 'ibss-central'
     database = 'load'
     user = 'root'
@@ -51,21 +54,37 @@ def get_process_dataframe():
     df = pd.read_sql('SELECT * FROM processes', con=db_connection)
 
     print(df.shape, f"\n", df.dtypes)
+    return df
 
+
+
+## *****ReadTSV******** Hadrien's contribution ********************
+def read_tsv():
+    filepath = './processes.tsv'
+
+    col_Names = ['pid', 'username', 'comm', 'cputimes', 'rss', 'vsz', 'thcount', 'etimes', 'bdstart', 'args',
+                 'snapshot_time_epoch', 'snapshot_datetime', 'host']  # from processes.tsv
+    df = pd.read_csv(filepath, float_precision=None, sep='\t', header=0, names=col_Names)
+
+    print(df.shape, f"\n", df.dtypes)
+
+    return df
+
+
+def initial_data_wrangling(raw_dataframe):
+    df = raw_dataframe
     df['snapshot_datetime'] = pd.to_datetime(df['snapshot_datetime'], dayfirst=True)
     df['snapshot_datetime' + str('_date')] = df['snapshot_datetime'].dt.strftime("%m/%d/%y")
     df.sort_values(by='snapshot_datetime', inplace=True)
     ## Feature engineering: calculate the normalized difference in CPU Time (in seconds) between sampling times by unique process and host
-
     df['cpu_diff'] = (df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()).fillna(0)
-
     df['seconds_diff'] = (
             df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
-
     df['cpu_norm'] = (df['cpu_diff'].div(df['seconds_diff'])).fillna(0)
     df.drop(['cpu_diff', 'seconds_diff'], axis=1, inplace=True)  ## Removing redundant fields
 
     return df
+
 
 
 # Arguments are 'comm' for by-command and 'username' (default) for by-user
@@ -237,34 +256,35 @@ def app_setup(df):
             )
         ]
     )
+def setup(use_tsv=True):
+    PICKLE_FILE = './dataframe_pickle.pkl'
+    if not os.path.exists(PICKLE_FILE):
 
 
-# show_usage_graph(df, 'rosalindf')
-# top_command = top_command(df)
-# top_users_and_commands = top_users_and_commands(df)
+        print("CREATING NEW PKL CACHE")
+        if use_tsv:
+            df = read_tsv()
+        else:
+            df = read_sql()
+        df = initial_data_wrangling(df)
+        dbfile = open(PICKLE_FILE, 'ab')
 
-# show_usage_graph(df,'comm')
-# show_usage_graph(df,'username')
-def setup():
-    dbfile = open('dataframe_pickle.pkl', 'rb')
-    df = pickle.load(dbfile)
-
-    #
-    # df = get_process_dataframe()
-    # dbfile = open('dataframe_pickle.pkl', 'ab')
-    #
-    # pickle.dump(df, dbfile)
-    # dbfile.close()
-    # sys.exit(0)
+        pickle.dump(df, dbfile)
+        dbfile.close()
+    else:
+        print("hi")
+        dbfile = open(PICKLE_FILE, 'rb')
+        df = pickle.load(dbfile)
+        print(df.shape, f"\n", df.dtypes)
 
     if app is None:
-        # data_setup()
         app_setup(df)
+        print("App is set up.")
 
 
 if __name__ == '__main__':
-    print("Running internal server")
     setup()
+    print("Running internal server...")
     app.run_server(debug=True)
 else:
     print(f"Running external server: {__name__}")
