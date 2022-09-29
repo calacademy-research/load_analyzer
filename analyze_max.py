@@ -9,6 +9,8 @@ from flask import Flask
 import dash_html_components as html
 import dash_core_components as dcc
 import dash_bootstrap_components as dbc
+import plotly.graph_objects as go
+import numpy as np
 
 app = None
 '''
@@ -101,11 +103,19 @@ def show_percent_usage_by(df, by="username"):
     fig = px.pie(df_agg,
                  values='cputimes_sum',
                  names=by,
+
                  title=f'Total CPU Time consumption by {by}, {start_date} - {end_date}')
     fig.show()
 
 
-def show_usage_graph(df, host=None):
+def common_group(df):
+    df_grouped = df.groupby(['snapshot_datetime', 'host', 'comm', 'username'])[
+        'cpu_norm'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
+    df_grouped = df_grouped[df_grouped['cpu_norm'] != 0]  # drops where the diff = 0
+    return df_grouped
+
+
+def usage(df, host=None):
     df.dropna(inplace=True)
     if host is not None:
         df.drop(df[df.host != host].index, inplace=True)
@@ -115,31 +125,24 @@ def show_usage_graph(df, host=None):
              'cpu_norm': 'sum'}). \
         reset_index().sort_values(by='snapshot_datetime', ascending=True)
 
-    start_date = df['snapshot_datetime_date'].min()
-    end_date = df['snapshot_datetime_date'].max()
+    return df_agg
 
-    # print(df_agg2.snapshot_datetime.min())
-    fig = px.line(df_agg,
-                  x='snapshot_datetime',
-                  y='cpu_norm',
-                  title=f'Total CPU Time consumption {start_date} - {end_date} for host: {host}')
-    fig.show()
-
-
-def common_group(df):
-    df_grouped = df.groupby(['snapshot_time_epoch', 'host', 'comm', 'username'])[
-        'cpu_norm'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
-    df_grouped = df_grouped[df_grouped['cpu_norm'] != 0]  # drops where the diff = 0
-    return df_grouped
 
 def top_command(df):
     ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
 
-    top_command = common_group(df).sort_values('cpu_norm').drop_duplicates(['snapshot_time_epoch', 'host'],
+    top_command = common_group(df).sort_values('cpu_norm').drop_duplicates(['snapshot_datetime', 'host'],
                                                                            keep='last')  # Filter for max cpu diff and id the process command
-    top_command.sort_values(by='snapshot_time_epoch', inplace=True)
+    top_command.sort_values(by='snapshot_datetime', inplace=True)
 
     return top_command
+
+
+def top_users_commands(df):
+    df_max_0 = common_group(df).groupby(['snapshot_datetime', 'comm', 'host', 'username']).agg(
+        {'cpu_norm': 'sum'}).reset_index()
+    top_users_and_commands = df_max_0[df_max_0['cpu_norm'] > 2]
+    return top_users_and_commands
 
 
 def create_app():
@@ -155,13 +158,6 @@ def create_app():
     return app
 
 
-def top_users_commands(df):
-    df_max_0 = common_group(df).groupby(['snapshot_time_epoch', 'comm', 'host', 'username']).agg(
-        {'cpu_norm': 'sum'}).reset_index()
-    top_users_and_commands = df_max_0[df_max_0['cpu_norm'] > 2]
-    return top_users_and_commands
-
-
 def app_setup(df):
     global app
     app = create_app()
@@ -173,12 +169,42 @@ def app_setup(df):
     end_date = df['snapshot_datetime_date'].max()
 
     top_users_commands_df = top_users_commands(df)
-    top_command_df = top_command(df)
-    fig = px.line(top_command_df,
-                  x='snapshot_time_epoch',
-                  y='cpu_norm',
-                  title=f'Total CPU Time consumption {start_date} - {end_date}')
 
+    top_command_df = top_command(df)
+
+    fig = go.Figure()
+    all_tuples = []
+
+
+    for index, row in top_command_df.iterrows():
+        entry=''
+        cur_datetime = row['snapshot_datetime']
+        tops = top_users_commands_df[top_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(by='cpu_norm',ascending=False)
+        for sindex,srow in tops.iterrows():
+            entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']}<br>"
+
+        all_tuples.append(entry)
+
+
+
+    # customdata = np.stack((top_command_df['host'], top_command_df['username'], top_command_df['cpu_norm']), axis=-1)
+    # customdata = np.stack(top_command_df['username'], axis=-1)
+
+    customdata = np.stack(all_tuples, axis=-1)
+
+    trace = go.Scatter(
+        mode='lines',
+        x=top_command_df['snapshot_datetime'],
+        y=top_command_df['cpu_norm'],
+        customdata=customdata,
+        hovertemplate=('<i>y</i>: %{y:.2f}' + \
+                       '<br><b>foo</b>: %{customdata}<br>' + \
+                       # '<br><b>also foo</b>: %{customdata[1]}<br>' + \
+                       # '<br><b>more foo</b>: %{customdata[2]}<br>' + \
+                       '<br><b>x</b>: %{x}<br>')
+    )
+
+    fig.add_trace(trace)
     main_div = html.Div(style=TOPLEVEL_STYLE,
                         className="row",
                         children=[
@@ -210,11 +236,6 @@ def app_setup(df):
     )
 
 
-
-
-
-
-
 # show_usage_graph(df, 'rosalindf')
 # top_command = top_command(df)
 # top_users_and_commands = top_users_and_commands(df)
@@ -222,7 +243,6 @@ def app_setup(df):
 # show_usage_graph(df,'comm')
 # show_usage_graph(df,'username')
 def setup():
-
     dbfile = open('dataframe_pickle.pkl', 'rb')
     df = pickle.load(dbfile)
 
