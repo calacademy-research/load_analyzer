@@ -16,6 +16,7 @@ import sys
 import os
 
 app = None
+SIDEBAR_WIDTH = "150px"
 
 '''
     PID: The process ID (every process is assigned a number as an ID).
@@ -51,10 +52,12 @@ def read_sql():
     db_connection = create_engine(url="mysql+pymysql://{0}:{1}@{2}:{3}/{4}".format(
         user, password, host, port, database
     ))
-
+    print("connected to database...")
     df = pd.read_sql('SELECT * FROM processes', con=db_connection)
 
-    print(df.shape, f"\n", df.dtypes)
+    # print(df.shape, f"\n", df.dtypes)
+    print("db read compelte.")
+
     return df
 
 
@@ -66,7 +69,7 @@ def read_tsv():
                  'snapshot_time_epoch', 'snapshot_datetime', 'host']  # from processes.tsv
     df = pd.read_csv(filepath, float_precision=None, sep='\t', header=0, names=col_Names)
 
-    print(df.shape, f"\n", df.dtypes)
+    # print(df.shape, f"\n", df.dtypes)
 
     return df
 
@@ -85,7 +88,7 @@ def initial_data_wrangling(raw_dataframe):
     ## This needs to happen before aggregating by time, otherwise the values will become distored (we're normalizing by seconds)
     df['cpu_diff'] = (df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()).fillna(0)
     df['seconds_diff'] = (
-                df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
+            df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
     df['cpu_norm'] = (df['cpu_diff'].div(df['seconds_diff'])).fillna(0)
     ## Aggregating sampling time by 15 min; since snapshot_time_epoch correspond to discrete sampling point, I retained the max snapshot_time_epoch.
     df = df.groupby(
@@ -139,10 +142,14 @@ def show_percent_usage_by(df, by="username"):
     fig.show()
 
 
-def common_group(df):
+def common_group(df, limit_to_host=None):
     df_grouped = df.groupby(['snapshot_datetime', 'host', 'comm', 'username'])[
         'cpu_norm'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
     df_grouped = df_grouped[df_grouped['cpu_norm'] != 0]  # drops where the diff = 0
+    foo = df_grouped['host'].unique()
+    if limit_to_host is not None:
+        df_grouped = df_grouped[df_grouped['host'] == limit_to_host]
+
     return df_grouped
 
 
@@ -159,20 +166,21 @@ def usage(df, host=None):
     return df_agg
 
 
-def top_command(df):
+def top_command(df, limit_to_host=None):
     ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
 
-    top_command = common_group(df).sort_values('cpu_norm').drop_duplicates(['snapshot_datetime', 'host'],
-                                                                           keep='last')  # Filter for max cpu diff and id the process command
+    top_command = common_group(df, limit_to_host).sort_values('cpu_norm').drop_duplicates(['snapshot_datetime', 'host'],
+                                                                                          keep='last')  # Filter for max cpu diff and id the process command
     top_command.sort_values(by='snapshot_datetime', inplace=True)
 
     return top_command
 
 
-def top_users_commands(df):
-    df_max_0 = common_group(df).groupby(['snapshot_datetime', 'comm', 'host', 'username']).agg(
+def top_users_commands(df, limit_to_host=None):
+    df_max_0 = common_group(df, limit_to_host).groupby(['snapshot_datetime', 'comm', 'host', 'username']).agg(
         {'cpu_norm': 'sum'}).reset_index()
     top_users_and_commands = df_max_0[df_max_0['cpu_norm'] > 2]
+
     return top_users_and_commands
 
 
@@ -193,15 +201,15 @@ def create_app():
 def sidebar_div(df):
     global app
 
-    SIDEBAR_STYLE = {
-        "position": "fixed",
-        "top": 0,
-        "left": 0,
-        "bottom": 0,
-        "width": 150,
-        "backgroundColor": "#F5F5F5",
-        "padding": "2rem 1rem"
-    }
+
+
+    server_array = df['host'].unique()
+    dropdown = dcc.Dropdown(server_array, server_array[0], id='demo-dropdown')
+    label = dash.html.Label("--------",
+                            style={"margin-left": 0},
+                            )
+    container = html.Div(id='dd-output-container')
+
 
     @app.callback(
         Output('dd-output-container', 'children'),
@@ -210,21 +218,22 @@ def sidebar_div(df):
     def update_output(value):
         return f'You have selected {value}'
 
-    server_array = df['host'].unique()
-    server_select_dropdown = html.Div([dcc.Dropdown(server_array, server_array[0], id='demo-dropdown'),
-                                       html.Div(id='dd-output-container')])
-    return (html.Div(id='sidebar',
-                     style=SIDEBAR_STYLE,
-                     children=[server_select_dropdown]))
+    return dbc.Row(children=[dropdown, label, container])
 
 
-def load_graph_one_server(hostname):
-    pass
+def page_content_div(df):
 
-def main_content_div(df):
-    top_users_commands_df = top_users_commands(df)
+    return (dbc.Row(id='page-content',
+                    # style=MAIN_STYLE,
+                    children=[load_graph_one_server(df, 'rosalindf'),
+                              load_graph_one_server(df, 'alice'),
+                              load_graph_one_server(df, 'tdobz')]))
 
-    top_command_df = top_command(df)
+
+def load_graph_one_server(df, hostname):
+    top_users_commands_df = top_users_commands(df, hostname)
+
+    top_command_df = top_command(df, hostname)
 
     fig = go.Figure()
     all_tuples = []
@@ -235,7 +244,7 @@ def main_content_div(df):
         tops = top_users_commands_df[top_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
             by='cpu_norm', ascending=False)
         for sindex, srow in tops.iterrows():
-            entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']} command: {srow['comm']}"
+            entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']:.2f} command: {srow['comm']}"
 
         all_tuples.append(entry)
 
@@ -259,9 +268,11 @@ def main_content_div(df):
         )
     )
 
-    fig.add_trace(trace)
+    fig.add_trace(trace
+                  )
+    fig.update_layout(title=f"Load graph for {hostname}")
 
-    graph = dcc.Graph(id='example-graph', figure=fig)
+    graph = dcc.Graph(id=f'load-graph-{hostname}', figure=fig)
     return graph
 
 
@@ -269,22 +280,27 @@ def app_setup(df):
     global app
     app = create_app()
     TOPLEVEL_STYLE = {
-        "width": "160rem"
+        # "width": "160rem"
 
     }
     # start_date = df['snapshot_datetime_date'].min()
     # end_date = df['snapshot_datetime_date'].max()
 
-    main_div = html.Div(style=TOPLEVEL_STYLE,
-                        className="row",
-                        children=[
-                            html.Div(className="two columns", children=[sidebar_div(df)]),
-                            html.Div(className="right columns",
-                                     style={'overflow': 'auto',
-                                            'overflow': 'visible'},
-                                     children=[main_content_div(df)]
-                                     )
-                        ])
+    main_div = dbc.Row(children=[
+        # dbc.Col(width=1,
+        #         children=[
+        #             dbc.Row(dash.html.Label("Material 1 as a sdas asd asd asd asd addsfdsfg asdf dfasd fadsf adsfgdsfg",
+        #                                     style={"margin-left": 0},
+        #                                     ))]),
+
+        dbc.Col(width=1,
+                children=[dbc.Row([sidebar_div(df)])]),
+        dbc.Col(width=11,
+                children=[dbc.Row(style={'overflow': 'auto',
+                                         'overflow': 'visible'},
+                                  children=[page_content_div(df)]
+                                  )])
+    ])
 
     app.layout = html.Div(
         children=
@@ -308,7 +324,7 @@ def setup(use_tsv=True):
     PICKLE_FILE = './dataframe_pickle.pkl'
     if not os.path.exists(PICKLE_FILE):
 
-        print("CREATING NEW PKL CACHE")
+        print("Creating a new pickle cache...")
         if use_tsv:
             df = read_tsv()
         else:
@@ -321,7 +337,7 @@ def setup(use_tsv=True):
     else:
         dbfile = open(PICKLE_FILE, 'rb')
         df = pickle.load(dbfile)
-        print(df.shape, f"\n", df.dtypes)
+        # print(df.shape, f"\n", df.dtypes)
 
     if app is None:
         app_setup(df)
