@@ -83,8 +83,8 @@ def initial_data_wrangling(raw_dataframe):
         'snapshot_datetime'].dt.strftime('%d') + ", " + df['snapshot_datetime'].dt.strftime('%H')
     df = df.sort_values(by='snapshot_datetime', ascending=True)
     ## Converting bytes to Gb for rss and vsz
-    df['rss'] = (df['rss'] / 1000000000).round(2)
-    df['vsz'] = (df['vsz'] / 1000000000).round(2)
+    df['rss'] = (df['rss'] / 10000000).round(2)
+    df['vsz'] = (df['vsz'] / 10000000).round(2)
     ## This needs to happen before aggregating by time, otherwise the values will become distored (we're normalizing by seconds)
     df['cpu_diff'] = (df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()).fillna(0)
     df['seconds_diff'] = (
@@ -142,11 +142,18 @@ def show_percent_usage_by(df, by="username"):
     fig.show()
 
 
-def common_group(df, limit_to_host=None):
+def common_group_memory(df, limit_to_host=None):
+    df_grouped = df.groupby(['snapshot_datetime', 'host', 'comm', 'username'])[
+        'rss'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
+    if limit_to_host is not None:
+        df_grouped = df_grouped[df_grouped['host'] == limit_to_host]
+
+    return df_grouped
+
+def common_group_load(df, limit_to_host=None):
     df_grouped = df.groupby(['snapshot_datetime', 'host', 'comm', 'username'])[
         'cpu_norm'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
     df_grouped = df_grouped[df_grouped['cpu_norm'] != 0]  # drops where the diff = 0
-    foo = df_grouped['host'].unique()
     if limit_to_host is not None:
         df_grouped = df_grouped[df_grouped['host'] == limit_to_host]
 
@@ -166,18 +173,35 @@ def usage(df, host=None):
     return df_agg
 
 
-def top_command(df, limit_to_host=None):
+def top_load_command(df, limit_to_host=None):
     ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
 
-    top_command = common_group(df, limit_to_host).sort_values('cpu_norm').drop_duplicates(['snapshot_datetime', 'host'],
-                                                                                          keep='last')  # Filter for max cpu diff and id the process command
+    top_command = common_group_load(df, limit_to_host).sort_values('cpu_norm').drop_duplicates(['snapshot_datetime',
+                                                                                           'host'],
+                                                                                               keep='last')  # Filter for max cpu diff and id the process command
     top_command.sort_values(by='snapshot_datetime', inplace=True)
 
     return top_command
 
+def top_memory_command(df, limit_to_host=None):
+    ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
 
-def top_users_commands(df, limit_to_host=None):
-    df_max_0 = common_group(df, limit_to_host).groupby(['snapshot_datetime', 'comm', 'host', 'username']).agg(
+    top_command = common_group_memory(df, limit_to_host).sort_values('rss').drop_duplicates(['snapshot_datetime',
+                                                                                           'host'],
+                                                                                            keep='last')  # Filter for max cpu diff and id the process command
+    top_command.sort_values(by='snapshot_datetime', inplace=True)
+
+    return top_command
+
+def top_users_memory_commands(df, limit_to_host=None):
+    df_max_0 = common_group_memory(df, limit_to_host).groupby(['snapshot_datetime', 'comm', 'host', 'username']).agg(
+        {'rss': 'sum'}).reset_index()
+    top_users_and_commands = df_max_0[df_max_0['rss'] > 2]
+
+    return top_users_and_commands
+
+def top_users_load_commands(df, limit_to_host=None):
+    df_max_0 = common_group_load(df, limit_to_host).groupby(['snapshot_datetime', 'comm', 'host', 'username']).agg(
         {'cpu_norm': 'sum'}).reset_index()
     top_users_and_commands = df_max_0[df_max_0['cpu_norm'] > 2]
 
@@ -199,17 +223,12 @@ def create_app():
 
 
 def sidebar_div(df):
-    global app
-
-
-
     server_array = df['host'].unique()
     dropdown = dcc.Dropdown(server_array, server_array[0], id='demo-dropdown')
     label = dash.html.Label("--------",
                             style={"margin-left": 0},
                             )
     container = html.Div(id='dd-output-container')
-
 
     @app.callback(
         Output('dd-output-container', 'children'),
@@ -222,18 +241,64 @@ def sidebar_div(df):
 
 
 def page_content_div(df):
-
     return (dbc.Row(id='page-content',
                     # style=MAIN_STYLE,
-                    children=[load_graph_one_server(df, 'rosalindf'),
-                              load_graph_one_server(df, 'alice'),
-                              load_graph_one_server(df, 'tdobz')]))
+                    children=[load_graph_one_server(df, 'rosalindf',256),
+                              load_graph_one_server(df, 'alice',192),
+                              load_graph_one_server(df, 'tdobz',96),
+                              memory_graph_one_server(df, 'rosalindf', 2000),
+                              memory_graph_one_server(df, 'alice', 1000),
+                              memory_graph_one_server(df, 'tdobz', 1000)
+                              ]))
 
 
-def load_graph_one_server(df, hostname):
-    top_users_commands_df = top_users_commands(df, hostname)
+def memory_graph_one_server(df, hostname,mem_limit):
+    top_users_commands_df = top_users_memory_commands(df, hostname)
 
-    top_command_df = top_command(df, hostname)
+    top_command_df = top_memory_command(df, hostname)
+
+    fig = go.Figure()
+    all_tuples = []
+
+    for index, row in top_command_df.iterrows():
+        entry = ''
+        cur_datetime = row['snapshot_datetime']
+        tops = top_users_commands_df[top_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
+            by='rss', ascending=False)
+        for sindex, srow in tops.iterrows():
+            entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['rss']:.2f} command: {srow['comm']}"
+
+        all_tuples.append(entry)
+
+    customdata = np.stack(all_tuples, axis=-1)
+
+    load_trace = go.Scatter(
+        mode='lines',
+        x=top_command_df['snapshot_datetime'],
+        y=top_command_df['rss'],
+        customdata=customdata,
+        hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
+                       '<i>Total memory</i>: %{y:.2f}' + \
+                       '<br>%{customdata}'
+                       ),
+        line=dict(
+            color="blue",
+            width=1
+        )
+    )
+
+    fig.add_trace(load_trace)
+    fig.add_hline(y=mem_limit, line_color="red", line_dash="dash")
+
+    fig.update_layout(title=f"Memory graph for {hostname}")
+
+    graph = dcc.Graph(id=f'memory-graph-{hostname}', figure=fig)
+    return graph
+
+def load_graph_one_server(df, hostname,cpu_limit):
+    top_users_commands_df = top_users_load_commands(df, hostname)
+
+    top_command_df = top_load_command(df, hostname)
 
     fig = go.Figure()
     all_tuples = []
@@ -248,12 +313,9 @@ def load_graph_one_server(df, hostname):
 
         all_tuples.append(entry)
 
-    # customdata = np.stack((top_command_df['host'], top_command_df['username'], top_command_df['cpu_norm']), axis=-1)
-    # customdata = np.stack(top_command_df['username'], axis=-1)
-
     customdata = np.stack(all_tuples, axis=-1)
 
-    trace = go.Scatter(
+    load_trace = go.Scatter(
         mode='lines',
         x=top_command_df['snapshot_datetime'],
         y=top_command_df['cpu_norm'],
@@ -268,8 +330,9 @@ def load_graph_one_server(df, hostname):
         )
     )
 
-    fig.add_trace(trace
-                  )
+    fig.add_trace(load_trace)
+    fig.add_hline(y=cpu_limit, line_color="red", line_dash="dash")
+
     fig.update_layout(title=f"Load graph for {hostname}")
 
     graph = dcc.Graph(id=f'load-graph-{hostname}', figure=fig)
