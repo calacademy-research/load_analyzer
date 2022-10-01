@@ -241,29 +241,36 @@ def sidebar_div(df):
 
 
 def page_content_div(df):
+    # return (dbc.Row(id='page-content',
+    #                 # style=MAIN_STYLE,
+    #                 children=[load_graph_one_server(df, 'rosalindf',256),
+    #                           load_graph_one_server(df, 'alice',192),
+    #                           load_graph_one_server(df, 'tdobz',96),
+    #                           memory_graph_one_server(df, 'rosalindf', 2000),
+    #                           memory_graph_one_server(df, 'alice', 1000),
+    #                           memory_graph_one_server(df, 'tdobz', 1000)
+    #                           ]))
+
     return (dbc.Row(id='page-content',
                     # style=MAIN_STYLE,
-                    children=[load_graph_one_server(df, 'rosalindf',256),
-                              load_graph_one_server(df, 'alice',192),
-                              load_graph_one_server(df, 'tdobz',96),
-                              memory_graph_one_server(df, 'rosalindf', 2000),
-                              memory_graph_one_server(df, 'alice', 1000),
-                              memory_graph_one_server(df, 'tdobz', 1000)
+                    children=[unified_graph_one_server(df, 'rosalindf',256),
+                              unified_graph_one_server(df, 'alice',192),
+                              unified_graph_one_server(df, 'tdobz',96),
                               ]))
 
 
 def memory_graph_one_server(df, hostname,mem_limit):
-    top_users_commands_df = top_users_memory_commands(df, hostname)
+    top_memory_users_commands_df = top_users_memory_commands(df, hostname)
 
-    top_command_df = top_memory_command(df, hostname)
+    top_memory_command_df = top_memory_command(df, hostname)
 
     fig = go.Figure()
     all_tuples = []
 
-    for index, row in top_command_df.iterrows():
+    for index, row in top_memory_command_df.iterrows():
         entry = ''
         cur_datetime = row['snapshot_datetime']
-        tops = top_users_commands_df[top_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
+        tops = top_memory_users_commands_df[top_memory_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
             by='rss', ascending=False)
         for sindex, srow in tops.iterrows():
             entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['rss']:.2f} command: {srow['comm']}"
@@ -274,8 +281,8 @@ def memory_graph_one_server(df, hostname,mem_limit):
 
     load_trace = go.Scatter(
         mode='lines',
-        x=top_command_df['snapshot_datetime'],
-        y=top_command_df['rss'],
+        x=top_memory_command_df['snapshot_datetime'],
+        y=top_memory_command_df['rss'],
         customdata=customdata,
         hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
                        '<i>Total memory</i>: %{y:.2f}' + \
@@ -295,18 +302,50 @@ def memory_graph_one_server(df, hostname,mem_limit):
     graph = dcc.Graph(id=f'memory-graph-{hostname}', figure=fig)
     return graph
 
-def load_graph_one_server(df, hostname,cpu_limit):
-    top_users_commands_df = top_users_load_commands(df, hostname)
 
-    top_command_df = top_load_command(df, hostname)
+def unified_graph_one_server(df, hostname,mem_limit):
+    top_memory_users_commands_df = top_users_memory_commands(df, hostname)
+
+    top_memory_command_df = top_memory_command(df, hostname)
+    top_load_users_commands_df = top_users_load_commands(df, hostname)
+
+    top_load_command_df = top_load_command(df, hostname)
 
     fig = go.Figure()
     all_tuples = []
 
-    for index, row in top_command_df.iterrows():
+    for index, row in top_memory_command_df.iterrows():
         entry = ''
         cur_datetime = row['snapshot_datetime']
-        tops = top_users_commands_df[top_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
+        tops = top_memory_users_commands_df[top_memory_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
+            by='rss', ascending=False)
+        for sindex, srow in tops.iterrows():
+            entry += f"<br>Host: {srow['host']} username: {srow['username']} mem: {srow['rss']:.2f}G command: {srow['comm']}"
+
+        all_tuples.append(entry)
+
+    customdata = np.stack(all_tuples, axis=-1)
+
+    memory_trace = go.Scatter(
+        mode='lines',
+        name="Memory",
+        x=top_memory_command_df['snapshot_datetime'],
+        y=top_memory_command_df['rss'],
+        customdata=customdata,
+        hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
+                       '<i>Total memory</i>: %{y:.2f}G' + \
+                       '<br>%{customdata}'
+                       ),
+        line=dict(
+            color="red",
+            width=1
+        )
+    )
+
+    for index, row in top_load_command_df.iterrows():
+        entry = ''
+        cur_datetime = row['snapshot_datetime']
+        tops = top_load_users_commands_df[top_load_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
             by='cpu_norm', ascending=False)
         for sindex, srow in tops.iterrows():
             entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']:.2f} command: {srow['comm']}"
@@ -317,8 +356,53 @@ def load_graph_one_server(df, hostname,cpu_limit):
 
     load_trace = go.Scatter(
         mode='lines',
-        x=top_command_df['snapshot_datetime'],
-        y=top_command_df['cpu_norm'],
+        name="Load",
+        x=top_load_command_df['snapshot_datetime'],
+        y=top_load_command_df['cpu_norm'],
+        customdata=customdata,
+        hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
+                       '<i>Total load</i>: %{y:.2f}' + \
+                       '<br>%{customdata}'
+                       ),
+        line=dict(
+            color="blue",
+            width=1
+        )
+    )
+
+    fig.add_trace(load_trace)
+    fig.add_trace(memory_trace)
+    # fig.add_hline(y=mem_limit, line_color="red", line_dash="dash")
+
+    fig.update_layout(title=f"unified graph for {hostname}")
+
+    graph = dcc.Graph(id=f'unified-graph-{hostname}', figure=fig)
+    return graph
+
+def load_graph_one_server(df, hostname,cpu_limit):
+    top_load_users_commands_df = top_users_load_commands(df, hostname)
+
+    top_load_command_df = top_load_command(df, hostname)
+
+    fig = go.Figure()
+    all_tuples = []
+
+    for index, row in top_load_command_df.iterrows():
+        entry = ''
+        cur_datetime = row['snapshot_datetime']
+        tops = top_load_users_commands_df[top_load_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
+            by='cpu_norm', ascending=False)
+        for sindex, srow in tops.iterrows():
+            entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']:.2f} command: {srow['comm']}"
+
+        all_tuples.append(entry)
+
+    customdata = np.stack(all_tuples, axis=-1)
+
+    load_trace = go.Scatter(
+        mode='lines',
+        x=top_load_command_df['snapshot_datetime'],
+        y=top_load_command_df['cpu_norm'],
         customdata=customdata,
         hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
                        '<i>Total load</i>: %{y:.2f}' + \
