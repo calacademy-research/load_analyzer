@@ -47,11 +47,15 @@ class Analyze():
             self.initial_data_wrangling(initial_df)
             self.df = self.reduced
             if use_pickle :
+                print(f"Writing pickle file: {self.PICKLE_FILE}")
                 dbfile = open(self.PICKLE_FILE, 'ab')
 
                 pickle.dump(self.df, dbfile)
                 dbfile.close()
+                print(f"Pickle write complete.")
+
         else:
+            print(f"Loading pickle file: {self.PICKLE_FILE}")
             dbfile = open(self.PICKLE_FILE, 'rb')
             self.df = pickle.load(dbfile)
             # print(df.shape, f"\n", df.dtypes)

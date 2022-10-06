@@ -280,7 +280,7 @@ class DashGraph():
         )
 
 
-analyer = Analyze(use_tsv=False)
+analyer = Analyze(use_tsv=False, use_pickle=True)
 graphs = DashGraph(analyer)
 server = graphs.server
 if __name__ == '__main__':
