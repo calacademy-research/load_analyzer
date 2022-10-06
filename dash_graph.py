@@ -10,7 +10,9 @@ import numpy as np
 from plotly.subplots import make_subplots
 
 from analyze import Analyze
+
 server = None
+
 
 class DashGraph():
     df = None
@@ -110,7 +112,6 @@ class DashGraph():
                                   self.unified_graph_one_server('tdobz', 96, 1000),
                                   ]))
 
-
     def unified_graph_one_server(self, hostname, cpu_limit, mem_limit):
         top_memory_users_commands_df = self.analyze.top_users_memory_commands(hostname)
 
@@ -150,7 +151,7 @@ class DashGraph():
                 width=1
             )
         )
-
+        all_tuples=[] b
         for index, row in top_load_command_df.iterrows():
             entry = ''
             cur_datetime = row['snapshot_datetime']
@@ -181,10 +182,9 @@ class DashGraph():
         )
 
         fig.add_trace(load_trace)
-        fig.add_trace(memory_trace,secondary_y=True)
-        fig.update_yaxes(range=[0, mem_limit], secondary_y=True,title="Memory usage")
+        fig.add_trace(memory_trace, secondary_y=True)
+        fig.update_yaxes(range=[0, mem_limit], secondary_y=True, title="Memory usage")
         fig.update_yaxes(range=[0, cpu_limit], secondary_y=False, title="CPU usage")
-
 
         # fig.add_hline(y=mem_limit, line_color="red", line_dash="dash")
 
@@ -193,49 +193,49 @@ class DashGraph():
         graph = dcc.Graph(id=f'unified-graph-{hostname}', figure=fig)
         return graph
 
-    # def load_graph_one_server(self, df, hostname, cpu_limit):
-    #     top_load_users_commands_df = self.analyze.top_users_load_commands(df, hostname)
-    #
-    #     top_load_command_df = self.analyze.top_load_command(df, hostname)
-    #
-    #     fig = go.Figure()
-    #     all_tuples = []
-    #
-    #     for index, row in top_load_command_df.iterrows():
-    #         entry = ''
-    #         cur_datetime = row['snapshot_datetime']
-    #         tops = top_load_users_commands_df[
-    #             top_load_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
-    #             by='cpu_norm', ascending=False)
-    #         for sindex, srow in tops.iterrows():
-    #             entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']:.2f} command: {srow['comm']}"
-    #
-    #         all_tuples.append(entry)
-    #
-    #     customdata = np.stack(all_tuples, axis=-1)
-    #
-    #     load_trace = go.Scatter(
-    #         mode='lines',
-    #         x=top_load_command_df['snapshot_datetime'],
-    #         y=top_load_command_df['cpu_norm'],
-    #         customdata=customdata,
-    #         hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
-    #                        '<i>Total load</i>: %{y:.2f}' + \
-    #                        '<br>%{customdata}'
-    #                        ),
-    #         line=dict(
-    #             color="blue",
-    #             width=1
-    #         )
-    #     )
-    #
-    #     fig.add_trace(load_trace)
-    #     fig.add_hline(y=cpu_limit, line_color="red", line_dash="dash")
-    #
-    #     fig.update_layout(title=f"Load graph for {hostname}")
-    #
-    #     graph = dcc.Graph(id=f'load-graph-{hostname}', figure=fig)
-    #     return graph
+    def load_graph_one_server(self, df, hostname, cpu_limit):
+        top_load_users_commands_df = self.analyze.top_users_load_commands(df, hostname)
+
+        top_load_command_df = self.analyze.top_load_command(df, hostname)
+
+        fig = go.Figure()
+        all_tuples = []
+
+        for index, row in top_load_command_df.iterrows():
+            entry = ''
+            cur_datetime = row['snapshot_datetime']
+            tops = top_load_users_commands_df[
+                top_load_users_commands_df['snapshot_datetime'] == cur_datetime].sort_values(
+                by='cpu_norm', ascending=False)
+            for sindex, srow in tops.iterrows():
+                entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']:.2f} command: {srow['comm']}"
+
+            all_tuples.append(entry)
+
+        customdata = np.stack(all_tuples, axis=-1)
+
+        load_trace = go.Scatter(
+            mode='lines',
+            x=top_load_command_df['snapshot_datetime'],
+            y=top_load_command_df['cpu_norm'],
+            customdata=customdata,
+            hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
+                           '<i>Total load</i>: %{y:.2f}' + \
+                           '<br>%{customdata}'
+                           ),
+            line=dict(
+                color="blue",
+                width=1
+            )
+        )
+
+        fig.add_trace(load_trace)
+        fig.add_hline(y=cpu_limit, line_color="red", line_dash="dash")
+
+        fig.update_layout(title=f"Load graph for {hostname}")
+
+        graph = dcc.Graph(id=f'load-graph-{hostname}', figure=fig)
+        return graph
 
     def app_setup(self):
         self.create_app()
@@ -280,9 +280,6 @@ class DashGraph():
         )
 
 
-
-
-
 analyer = Analyze(use_tsv=False)
 graphs = DashGraph(analyer)
 server = graphs.server
@@ -291,6 +288,5 @@ if __name__ == '__main__':
     graphs.app.run_server(debug=True)
 else:
     print(f"Running external server: {__name__}")
-
 
 print("exiting.")
