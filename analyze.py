@@ -34,8 +34,10 @@ class Analyze():
     reduced = None
     PICKLE_FILE = './app/dataframe_pickle.pkl'
 
-    def __init__(self, use_tsv=True):
-        if not os.path.exists(self.PICKLE_FILE):
+    def __init__(self, use_tsv=True, use_pickle=False):
+
+
+        if not os.path.exists(self.PICKLE_FILE) or use_pickle is False:
 
             print("Creating a new pickle cache...")
             if use_tsv:
@@ -44,10 +46,11 @@ class Analyze():
                 initial_df = self.read_sql()
             self.initial_data_wrangling(initial_df)
             self.df = self.reduced
-            dbfile = open(self.PICKLE_FILE, 'ab')
+            if use_pickle :
+                dbfile = open(self.PICKLE_FILE, 'ab')
 
-            pickle.dump(self.df, dbfile)
-            dbfile.close()
+                pickle.dump(self.df, dbfile)
+                dbfile.close()
         else:
             dbfile = open(self.PICKLE_FILE, 'rb')
             self.df = pickle.load(dbfile)
