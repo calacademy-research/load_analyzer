@@ -32,7 +32,7 @@ import os
 class Analyze():
     df = None
     reduced = None
-    PICKLE_FILE = './dataframe_pickle.pkl'
+    PICKLE_FILE = './app/dataframe_pickle.pkl'
 
     def __init__(self, use_tsv=True):
         if not os.path.exists(self.PICKLE_FILE):
@@ -54,7 +54,8 @@ class Analyze():
             # print(df.shape, f"\n", df.dtypes)
 
     def read_sql(self):
-        host = 'ibss-central'
+        # host = 'ibss-central'
+        host = '10.1.10.123'
         database = 'load'
         user = 'root'
         password = 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf'
@@ -92,8 +93,8 @@ class Analyze():
             'snapshot_datetime'].dt.strftime('%d') + ", " + df['snapshot_datetime'].dt.strftime('%H')
         df = df.sort_values(by='snapshot_datetime', ascending=True)
         ## Converting bytes to Gb for rss and vsz
-        df['rss'] = (df['rss'] / 10000000).round(2)
-        df['vsz'] = (df['vsz'] / 10000000).round(2)
+        df['rss'] = (df['rss'] / 1000000).round(2)
+        df['vsz'] = (df['vsz'] / 1000000).round(2)
         ## This needs to happen before aggregating by time, otherwise the values will become distored (we're normalizing by seconds)
         df['cpu_diff'] = (df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()).fillna(0)
         df['seconds_diff'] = (
