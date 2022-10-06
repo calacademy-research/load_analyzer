@@ -151,7 +151,7 @@ class DashGraph():
                 width=1
             )
         )
-        all_tuples=[] b
+        all_tuples=[]
         for index, row in top_load_command_df.iterrows():
             entry = ''
             cur_datetime = row['snapshot_datetime']
