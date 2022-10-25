@@ -1,5 +1,20 @@
 # load_analyzer
 
+Running in test mode:
+gunzip processes.tsv.gz
+
+python3 dash_graph.py
+
+
+Change the line: 
+analyer = Analyze(use_tsv=False, use_pickle=False)
+
+to use_tsv = True
+
+---
+
+
+Docker:
 mkdir data
 docker-compose build
 docker-compose up
