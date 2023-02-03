@@ -9,7 +9,7 @@ services:
       context: . # Use an image built from the specified dockerfile in the current directory.
       dockerfile: Dockerfile
 
-    restart: unless-stopped
+    restart: always
     depends_on:
       - mysql
     volumes:
@@ -26,7 +26,7 @@ services:
 
 #
   mysql:
-    restart: unless-stopped
+    restart: always
     image: mysql:8
     container_name: mysql
     command: "--default-authentication-plugin=mysql_native_password"

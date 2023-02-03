@@ -1,1 +1,1 @@
-docker build -t apache-flask .
+docker build -t load_analyzer .
