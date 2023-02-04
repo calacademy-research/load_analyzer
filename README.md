@@ -11,6 +11,13 @@ analyer = Analyze(use_tsv=False, use_pickle=False)
 
 to use_tsv = True
 
+Notes: 
+Deployed in a docker container on ibss-crontab with only the dash app
+Monitoring is in docker on ibss-central. Why did I do it that way?!
+
+ bbbd7a727571   load_analyzer_app                            "python monitor.py"      5 months ago    Up 3 days                                                                                        
+load_analyzer_app_1
+
 ---
 
 

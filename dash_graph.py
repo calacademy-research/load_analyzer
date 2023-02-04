@@ -285,7 +285,7 @@ graphs = DashGraph(analyer)
 server = graphs.server
 if __name__ == '__main__':
     print("Running internal server...")
-    graphs.app.run_server(debug=True)
+    graphs.app.run_server(debug=True, host='127.0.0.1')
 else:
     print(f"Running external server: {__name__}")
 

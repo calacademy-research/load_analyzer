@@ -4,6 +4,7 @@ from sqlalchemy import create_engine
 import pandas as pd
 import pickle
 import os
+import datetime
 
 '''
     PID: The process ID (every process is assigned a number as an ID).
@@ -36,17 +37,19 @@ class Analyze():
 
     def __init__(self, use_tsv=True, use_pickle=False):
 
-
         if not os.path.exists(self.PICKLE_FILE) or use_pickle is False:
 
-            print("Creating a new pickle cache...")
+            print("Reading data, cache file not found...")
             if use_tsv:
+                print("Reading from TSV")
                 initial_df = self.read_tsv()
             else:
+                print("Reading from Database")
+
                 initial_df = self.read_sql()
             self.initial_data_wrangling(initial_df)
             self.df = self.reduced
-            if use_pickle :
+            if use_pickle:
                 print(f"Writing pickle file: {self.PICKLE_FILE}")
                 dbfile = open(self.PICKLE_FILE, 'ab')
 
@@ -71,8 +74,15 @@ class Analyze():
         db_connection = create_engine(url="mysql+pymysql://{0}:{1}@{2}:{3}/{4}".format(
             user, password, host, port, database
         ))
-        print("connected to database...")
-        df = pd.read_sql('SELECT * FROM processes', con=db_connection)
+        print(f"connected to database on {host}...")
+
+        last_month = datetime.datetime.now() - datetime.timedelta(days=20)
+
+        # df = pd.read_sql('SELECT * FROM processes', con=db_connection)
+        sql_string = f"SELECT * FROM processes WHERE snapshot_datetime >= '{last_month.strftime('%Y-%m-%d %H:%M:%S')}'"
+        print(f"Reading using sql: {sql_string}")
+        df = pd.read_sql(sql_string,
+                         con=db_connection)
 
         # print(df.shape, f"\n", df.dtypes)
         print("db read compelte.")
