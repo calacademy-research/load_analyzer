@@ -1,5 +1,9 @@
 # load_analyzer
 
+This is run in two pieces - the monitoring and database side is run on ibss-central using 
+Docker-compose and docker. The dash based web url is run on ibss-central and launched directly
+from the script "run" et al, and reset via crontab on that machine.
+
 Running in test mode:
 gunzip processes.tsv.gz
 
