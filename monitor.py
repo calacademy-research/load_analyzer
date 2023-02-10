@@ -85,7 +85,7 @@ sql = """create table if not exists processes (
         thcount int not null,
         etimes int not null,
         bdstart varchar(100),
-        args varchar(5000) not null,
+        args varchar(20000) not null,
         snapshot_time_epoch int not null,
         snapshot_datetime datetime not null,
         host varchar(20))
