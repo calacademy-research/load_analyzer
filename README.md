@@ -4,7 +4,10 @@ This is run in two pieces - the monitoring and database side is run on ibss-cent
 Docker-compose and docker. The dash based web url is run on ibss-central and launched directly
 from the script "run" et al, and reset via crontab on that machine.
 
-to start the monitoring process, run as user "admin" on ibss-central and do docker-compose up.
+to start the monitoring process, run as user "admin", which has the keys set up correctly.
+the process "monitor.py" should be launched - it's currently in a docker that was set up 
+to run from the command line, so that will have to be redone. This wants to be wrapped in a
+script.
 
 Running in test mode:
 gunzip processes.tsv.gz
