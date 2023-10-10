@@ -81,7 +81,7 @@ sql = """create table if not exists processes (
         comm varchar(100) not null,
         cputimes int not null,
         rss int not null,
-        vsz int not null,
+        vsz bigint not null,
         thcount int not null,
         etimes int not null,
         bdstart varchar(100),
