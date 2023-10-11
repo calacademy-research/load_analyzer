@@ -5,9 +5,7 @@ Docker-compose and docker. The dash based web url is run on ibss-central and lau
 from the script "run" et al, and reset via crontab on that machine.
 
 to start the monitoring process, run as user "admin", which has the keys set up correctly.
-the process "monitor.py" should be launched - it's currently in a docker that was set up 
-to run from the command line, so that will have to be redone. This wants to be wrapped in a
-script.
+run "launch-monitor.sh build" to rebuild the docker. without build if yhou're just made code changes.
 
 Running in test mode:
 gunzip processes.tsv.gz

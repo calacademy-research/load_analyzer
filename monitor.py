@@ -3,8 +3,8 @@ import db_utils
 import subprocess
 import sys
 import time
-db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
-#db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '127.0.0.1', 'load')
+#db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
+db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '127.0.0.1', 'load')
 
 HOSTS = ['rosalindf', 'alice', 'tdobz']
 ps_arg_tuples = [
@@ -91,18 +91,20 @@ sql = """create table if not exists processes (
         host varchar(20))
 """
 db.execute(sql)
+print("Starting up...", flush=True)
 while True:
     epoch_time =int(time.time())
     datetime_time = time.strftime('%Y-%m-%d %H:%M:%S')
     for host in HOSTS:
-        ssh = subprocess.Popen(["ssh", f"admin@{host}", COMMAND],
+        print(f"Checking host {host}", flush=True)
+        ssh = subprocess.Popen(["ssh", "-o", "StrictHostKeyChecking=no", f"admin@{host}", COMMAND],
                                shell=False,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
         result = ssh.stdout.readlines()
         if result == []:
             error = ssh.stderr.readlines()
-            sys.stderr.write(f"error: {error}\n")
+            sys.stderr.write(f"error: {error}\n", flush=True)
 
         for line in result[1:]:
             string_line = line.strip().decode("utf-8")
