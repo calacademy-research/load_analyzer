@@ -121,7 +121,8 @@ while True:
             sarray = list(map(' '.join, sarray))
             user = sarray[1]
             process = sarray[2]
-            cputime = int(sarray[3])
+            ppid = sarray[3]
+            cputime = int(sarray[4])
 
             if cputime < 10:
                 continue
