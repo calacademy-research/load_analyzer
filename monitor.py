@@ -123,10 +123,11 @@ while True:
             process = sarray[2]
             ppid = sarray[3]
             cputime = int(sarray[4])
-
+            print(f"user: {user}")
             if cputime < 10:
                 continue
             if user in exclude_users:
+                print(f"exlcuding user: {user}")
                 continue
             if process in exclude_processes:
                 continue
