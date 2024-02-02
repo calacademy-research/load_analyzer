@@ -3,12 +3,14 @@ import db_utils
 import subprocess
 import sys
 import time
-#db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
-db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '127.0.0.1', 'load')
+#db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '127.0.0.1', 'load')
+db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
+
 
 HOSTS = ['rosalindf', 'alice', 'tdobz']
 ps_arg_tuples = [
     ('pid', 'process ID'),
+    ('ppid', 'parent process ID'),
     ('user:30', 'username'),
     ('comm', 'command name'),
     ('cputimes', 'CPU time seconds'),
@@ -76,7 +78,9 @@ exclude_users = [
 ]
 
 sql = """create table if not exists processes (
+
         pid int,
+        ppid int,
         username varchar(50) not null,
         comm varchar(100) not null,
         cputimes int not null,
@@ -93,7 +97,7 @@ sql = """create table if not exists processes (
 db.execute(sql)
 print("Starting up...", flush=True)
 while True:
-    epoch_time =int(time.time())
+    epoch_time = int(time.time())
     datetime_time = time.strftime('%Y-%m-%d %H:%M:%S')
     for host in HOSTS:
         print(f"Checking host {host}", flush=True)
@@ -132,7 +136,7 @@ while True:
             # print(f"raw: {string_line}")
             print(".", end='')
 
-            sql = """insert into processes (pid,username,comm,cputimes,rss,vsz,thcount,etimes,bdstart,args,snapshot_time_epoch, snapshot_datetime, host) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
+            sql = """insert into processes (pid,ppid, username,comm,cputimes,rss,vsz,thcount,etimes,bdstart,args,snapshot_time_epoch, snapshot_datetime, host) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
             args = []
             for element in sarray:
                 try:
@@ -142,7 +146,6 @@ while True:
                     args.append(element)
             args.append(epoch_time)
             args.append(datetime_time)
-
 
             args.append(host)
 
