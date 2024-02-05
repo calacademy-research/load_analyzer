@@ -31,37 +31,41 @@ import datetime
 
 
 class Analyze():
+    _instance = None
     df = None
     reduced = None
     PICKLE_FILE = './app/dataframe_pickle.pkl'
 
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(Analyze, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self, use_tsv=True, use_pickle=False):
-
-        if not os.path.exists(self.PICKLE_FILE) or use_pickle is False:
-
-            print("Reading data, cache file not found...")
-            if use_tsv:
-                print("Reading from TSV")
-                initial_df = self.read_tsv()
+        if not hasattr(self, 'initialized'):  # This ensures initialization happens only once
+            self.initialized = True
+            if not os.path.exists(self.PICKLE_FILE) or use_pickle is False:
+                print("Reading data, cache file not found...")
+                if use_tsv:
+                    print("Reading from TSV")
+                    initial_df = self.read_tsv()
+                else:
+                    print("Reading from Database")
+                    initial_df = self.read_sql()
+                self.initial_data_wrangling(initial_df)
+                self.df = self.reduced
+                if use_pickle:
+                    print(f"Writing pickle file: {self.PICKLE_FILE}")
+                    with open(self.PICKLE_FILE, 'ab') as dbfile:
+                        pickle.dump(self.df, dbfile)
+                    print("Pickle write complete.")
             else:
-                print("Reading from Database")
+                print(f"Loading pickle file: {self.PICKLE_FILE}")
+                with open(self.PICKLE_FILE, 'rb') as dbfile:
+                    self.df = pickle.load(dbfile)
 
-                initial_df = self.read_sql()
-            self.initial_data_wrangling(initial_df)
-            self.df = self.reduced
-            if use_pickle:
-                print(f"Writing pickle file: {self.PICKLE_FILE}")
-                dbfile = open(self.PICKLE_FILE, 'ab')
 
-                pickle.dump(self.df, dbfile)
-                dbfile.close()
-                print(f"Pickle write complete.")
 
-        else:
-            print(f"Loading pickle file: {self.PICKLE_FILE}")
-            dbfile = open(self.PICKLE_FILE, 'rb')
-            self.df = pickle.load(dbfile)
-            # print(df.shape, f"\n", df.dtypes)
 
     def read_sql(self):
         # host = 'ibss-central'
