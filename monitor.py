@@ -3,6 +3,7 @@ import db_utils
 import subprocess
 import sys
 import time
+import os
 db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '127.0.0.1', 'load')
 # db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
 
@@ -98,6 +99,8 @@ db.execute(sql)
 print("Starting up...", flush=True)
 while True:
     epoch_time = int(time.time())
+    os.environ['TZ'] = 'America/Los_Angeles'
+    time.tzset()
     datetime_time = time.strftime('%Y-%m-%d %H:%M:%S')
     for host in HOSTS:
         print(f"Checking host {host}", flush=True)
