@@ -29,5 +29,5 @@ if sudo docker ps | grep load_analyzer_app_1; then
 fi
 
 # Run the Docker container, mounting the current directory as /code, SSH keys, and using host network
-sudo docker run -d --network host -v $DIR:/code -v ~/.ssh/id_rsa:/root/.ssh/id_rsa -v ~/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub --name load_analyzer_app_1 monitor_app_image
+sudo docker run -d --restart unless-stopped --network host -v $DIR:/code -v ~/.ssh/id_rsa:/root/.ssh/id_rsa -v ~/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub --name load_analyzer_app_1 monitor_app_image
 

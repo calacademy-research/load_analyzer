@@ -69,11 +69,11 @@ class Analyze():
 
     def read_sql(self):
         # host = 'ibss-central'
-        host = '192.168.1.24'
-        database = 'load_analyzer'
+        host = '10.1.10.123'
+        database = 'load'
         user = 'root'
-        password = '123'
-        port = 3400
+        password = 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf'
+        port = 3312
 
         db_connection = create_engine(url="mysql+pymysql://{0}:{1}@{2}:{3}/{4}".format(
             user, password, host, port, database
