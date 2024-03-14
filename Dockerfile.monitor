@@ -5,14 +5,13 @@ FROM python:3
 ENV TZ="America/Los_Angeles"
 
 # Make dir app
-RUN mkdir /app
 WORKDIR /app
-COPY requirements.txt requirements.txt
+
+# Install dependencies
+COPY requirements.txt ./
 
 RUN pip install -r requirements.txt
 
-# Copy the source from the current directory to the Working Directory inside the container
-COPY . .
 
 
 

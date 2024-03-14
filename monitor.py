@@ -4,7 +4,7 @@ import subprocess
 import sys
 import time
 import os
-db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '127.0.0.1', 'load')
+db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '10.1.10.123', 'load')
 # db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
 
 
@@ -111,7 +111,7 @@ while True:
         result = ssh.stdout.readlines()
         if result == []:
             error = ssh.stderr.readlines()
-            sys.stderr.write(f"error: {error}\n", flush=True)
+            sys.stderr.write(f"error: {error}\n")
 
         for line in result[1:]:
             string_line = line.strip().decode("utf-8")
