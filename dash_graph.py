@@ -1,9 +1,7 @@
 import plotly.express as px
-from dash import Dash, dcc, html, Input, Output
+from dash import dcc, html, Input, Output, callback
 import dash
 from flask import Flask
-import dash_html_components as html
-import dash_core_components as dcc
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import numpy as np
@@ -14,7 +12,7 @@ from analyze import Analyze
 server = None
 
 
-class DashGraph():
+class DashGraph:
     df = None
     app = None
     analyze = None
@@ -95,16 +93,7 @@ class DashGraph():
         return dbc.Row(children=[dropdown, label, container])
 
     def page_content_div(self):
-        # return (dbc.Row(id='page-content',
-        #                 # style=MAIN_STYLE,
-        #                 children=[load_graph_one_server(df, 'rosalindf',256),
-        #                           load_graph_one_server(df, 'alice',192),
-        #                           load_graph_one_server(df, 'tdobz',96),
-        #                           memory_graph_one_server(df, 'rosalindf', 2000),
-        #                           memory_graph_one_server(df, 'alice', 1000),
-        #                           memory_graph_one_server(df, 'tdobz', 1000)
-        #                           ]))
-
+        self.analyze.update_df()
         return (dbc.Row(id='page-content',
                         # style=MAIN_STYLE,
                         children=[self.unified_graph_one_server('rosalindf', 256, 2000),
@@ -151,7 +140,7 @@ class DashGraph():
                 width=1
             )
         )
-        all_tuples=[]
+        all_tuples = []
         for index, row in top_load_command_df.iterrows():
             entry = ''
             cur_datetime = row['snapshot_datetime']
@@ -186,12 +175,8 @@ class DashGraph():
         fig.update_yaxes(range=[0, mem_limit], secondary_y=True, title="Memory usage")
         fig.update_yaxes(range=[0, cpu_limit], secondary_y=False, title="CPU usage")
 
-        # fig.add_hline(y=mem_limit, line_color="red", line_dash="dash")
-
         fig.update_layout(title=f"CPU and memory usage on {hostname}")
-
-        graph = dcc.Graph(id=f'unified-graph-{hostname}', figure=fig)
-        return graph
+        return fig
 
     def load_graph_one_server(self, df, hostname, cpu_limit):
         top_load_users_commands_df = self.analyze.top_users_load_commands(df, hostname)
@@ -239,53 +224,51 @@ class DashGraph():
 
     def app_setup(self):
         self.create_app()
-        TOPLEVEL_STYLE = {
-            # "width": "160rem"
 
-        }
-        # start_date = df['snapshot_datetime_date'].min()
-        # end_date = df['snapshot_datetime_date'].max()
-
-        main_div = dbc.Row(children=[
-            # dbc.Col(width=1,
-            #         children=[
-            #             dbc.Row(dash.html.Label("Material 1 as a sdas asd asd asd asd addsfdsfg asdf dfasd fadsf adsfgdsfg",
-            #                                     style={"margin-left": 0},
-            #                                     ))]),
-
-            # dbc.Col(width=1,
-            #         children=[dbc.Row([self.sidebar_div()])]),
-            dbc.Col(width=12,
-                    children=[dbc.Row(style={'overflow': 'auto',
-                                             'overflow': 'visible'},
-                                      children=[self.page_content_div()]
-                                      )])
-        ])
+        # main_div = dbc.Row(children=[
+        #     dbc.Col(width=12,
+        #             children=[dbc.Row(style={'overflow': 'auto',
+        #                                      'overflow': 'visible'},
+        #                               children=[self.page_content_div()]
+        #                               )])
+        # ])
 
         self.app.layout = html.Div(
-            children=
-            [
-                dcc.Input(id="loading-input-2",
-                          style={"visibility": "hidden"},
-                          value='Input triggers nested spinner'),
-                dcc.Loading(
-                    id="loading-2",
-                    fullscreen=True,
-
-                    children=[html.Div([html.Div(id="loading-output-2")]),
-                              main_div],
-                    type="circle",
+            children=[
+                dcc.Graph(id='rosalindf'),
+                dcc.Graph(id='alice'),
+                dcc.Graph(id='tdobz'),
+                dcc.Interval(
+                    id='interval-component',
+                    interval=30 * 1000,  # 30 seconds total
+                    n_intervals=0,
                 )
             ]
         )
 
+    @callback(Output('rosalindf', 'figure'),
+              Input('interval-component', 'n_intervals'))
+    def graph_rosalindf(intervals):
+        analyzer.update_df()
+        return graphs.unified_graph_one_server('rosalindf', 256, 2000)
 
-analyer = Analyze(use_tsv=False, use_pickle=False)
-graphs = DashGraph(analyer)
+    @callback(Output('alice', 'figure'),
+              Input('interval-component', 'n_intervals'))
+    def graph_alice(intervals):
+        return graphs.unified_graph_one_server('alice', 192, 1000)
+
+    @callback(Output('tdobz', 'figure'),
+              Input('interval-component', 'n_intervals'))
+    def graph_tdobz(intervals):
+        return graphs.unified_graph_one_server('tdobz', 96, 1000)
+
+
+analyzer = Analyze(use_tsv=False, use_pickle=False)
+graphs = DashGraph(analyzer)
 server = graphs.server
 if __name__ == '__main__':
     print("Running internal server...")
-    graphs.app.run_server(debug=True, host='127.0.0.1',use_reloader=False)
+    graphs.app.run_server(debug=True, host='127.0.0.1', use_reloader=False)
 else:
     print(f"Running external server: {__name__}")
 

@@ -65,7 +65,10 @@ class Analyze():
                     self.df = pickle.load(dbfile)
 
 
-
+    def update_df(self):
+        initial_df = self.read_sql()
+        self.initial_data_wrangling(initial_df)
+        self.df = self.reduced
 
     def read_sql(self):
         # host = 'ibss-central'
@@ -85,8 +88,7 @@ class Analyze():
         # df = pd.read_sql('SELECT * FROM processes', con=db_connection)
         sql_string = f"SELECT * FROM processes WHERE snapshot_datetime >= '{last_month.strftime('%Y-%m-%d %H:%M:%S')}'"
         print(f"Reading using sql: {sql_string}")
-        df = pd.read_sql(sql_string,
-                         con=db_connection)
+        df = pd.read_sql(sql_string, con=db_connection)
 
         # print(df.shape, f"\n", df.dtypes)
         print("db read compelte.")
