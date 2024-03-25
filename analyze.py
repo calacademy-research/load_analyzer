@@ -83,7 +83,7 @@ class Analyze():
         ))
         print(f"connected to database on {host}...")
 
-        time_window = datetime.datetime.now() - datetime.timedelta(hours=6)
+        time_window = datetime.datetime.now() - datetime.timedelta(days=10)
 
         # df = pd.read_sql('SELECT * FROM processes', con=db_connection)
         sql_string = f"SELECT * FROM processes WHERE snapshot_datetime >= '{time_window.strftime('%Y-%m-%d %H:%M:%S')}'"
