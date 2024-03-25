@@ -83,7 +83,7 @@ class Analyze():
         ))
         print(f"connected to database on {host}...")
 
-        time_window = datetime.datetime.now() - datetime.timedelta(hours=6)
+        time_window = datetime.datetime.now() - datetime.timedelta(days=20)
 
         # df = pd.read_sql('SELECT * FROM processes', con=db_connection)
         sql_string = f"SELECT * FROM processes WHERE snapshot_datetime >= '{time_window.strftime('%Y-%m-%d %H:%M:%S')}'"
@@ -125,9 +125,9 @@ class Analyze():
         df['cpu_norm'] = (df['cpu_diff'].div(df['seconds_diff'])).fillna(0)
         df = df[df['cpu_norm'] != 0]  ## Filtering out all rows where cpu_norm = 0.
 
-        ## Aggregating sampling time by 15 min; since snapshot_time_epoch correspond to discrete sampling point, I retained the max snapshot_time_epoch.
+        ## Aggregating sampling time by 5 min; since snapshot_time_epoch correspond to discrete sampling point, I retained the max snapshot_time_epoch.
         reduced = df.groupby(
-            [pd.Grouper(key='snapshot_datetime', freq='15min'), 'pid', 'username', 'comm', 'bdstart', 'args',
+            [pd.Grouper(key='snapshot_datetime', freq='5min'), 'pid', 'username', 'comm', 'bdstart', 'args',
              'host']).agg(
             {'rss': 'mean', 'vsz': 'mean', 'thcount': 'max', 'etimes': 'max', 'cputimes': 'max',
              'snapshot_time_epoch': 'max',
