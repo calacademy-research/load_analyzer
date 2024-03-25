@@ -92,14 +92,12 @@ class DashGraph:
 
         return dbc.Row(children=[dropdown, label, container])
 
-    def page_content_div(self):
-        self.analyze.update_df()
-        return (dbc.Row(id='page-content',
-                        # style=MAIN_STYLE,
-                        children=[self.unified_graph_one_server('rosalindf', 256, 2000),
-                                  self.unified_graph_one_server('alice', 192, 1000),
-                                  self.unified_graph_one_server('tdobz', 96, 1000),
-                                  ]))
+    def create_graphs(self):
+        return [
+            self.unified_graph_one_server('rosalindf', 256, 2000),
+            self.unified_graph_one_server('alice', 192, 1000),
+            self.unified_graph_one_server('tdobz', 96, 1000)
+        ]
 
     def unified_graph_one_server(self, hostname, cpu_limit, mem_limit):
         top_memory_users_commands_df = self.analyze.top_users_memory_commands(hostname)
@@ -176,7 +174,9 @@ class DashGraph:
         fig.update_yaxes(range=[0, cpu_limit], secondary_y=False, title="CPU usage")
 
         fig.update_layout(title=f"CPU and memory usage on {hostname}")
-        return fig
+
+        graph = dcc.Graph(id=f'unified-graph-{hostname}', figure=fig)
+        return graph
 
     def load_graph_one_server(self, df, hostname, cpu_limit):
         top_load_users_commands_df = self.analyze.top_users_load_commands(df, hostname)
@@ -225,19 +225,15 @@ class DashGraph:
     def app_setup(self):
         self.create_app()
 
-        # main_div = dbc.Row(children=[
-        #     dbc.Col(width=12,
-        #             children=[dbc.Row(style={'overflow': 'auto',
-        #                                      'overflow': 'visible'},
-        #                               children=[self.page_content_div()]
-        #                               )])
-        # ])
+        @callback(Output('graphs', 'children'),
+                  Input('interval-component', 'n_intervals'))
+        def update_graphs(intervals):
+            analyzer.update_df()
+            return self.create_graphs()
 
         self.app.layout = html.Div(
             children=[
-                dcc.Graph(id='rosalindf'),
-                dcc.Graph(id='alice'),
-                dcc.Graph(id='tdobz'),
+                html.Div(id='graphs', children=self.create_graphs()),
                 dcc.Interval(
                     id='interval-component',
                     interval=30 * 1000,  # 30 seconds total
@@ -245,23 +241,6 @@ class DashGraph:
                 )
             ]
         )
-
-    @callback(Output('rosalindf', 'figure'),
-              Input('interval-component', 'n_intervals'))
-    def graph_rosalindf(intervals):
-        analyzer.update_df()
-        return graphs.unified_graph_one_server('rosalindf', 256, 2000)
-
-    @callback(Output('alice', 'figure'),
-              Input('interval-component', 'n_intervals'))
-    def graph_alice(intervals):
-        return graphs.unified_graph_one_server('alice', 192, 1000)
-
-    @callback(Output('tdobz', 'figure'),
-              Input('interval-component', 'n_intervals'))
-    def graph_tdobz(intervals):
-        return graphs.unified_graph_one_server('tdobz', 96, 1000)
-
 
 analyzer = Analyze(use_tsv=False, use_pickle=False)
 graphs = DashGraph(analyzer)

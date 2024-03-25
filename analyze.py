@@ -83,10 +83,10 @@ class Analyze():
         ))
         print(f"connected to database on {host}...")
 
-        last_month = datetime.datetime.now() - datetime.timedelta(days=10)
+        time_window = datetime.datetime.now() - datetime.timedelta(hours=6)
 
         # df = pd.read_sql('SELECT * FROM processes', con=db_connection)
-        sql_string = f"SELECT * FROM processes WHERE snapshot_datetime >= '{last_month.strftime('%Y-%m-%d %H:%M:%S')}'"
+        sql_string = f"SELECT * FROM processes WHERE snapshot_datetime >= '{time_window.strftime('%Y-%m-%d %H:%M:%S')}'"
         print(f"Reading using sql: {sql_string}")
         df = pd.read_sql(sql_string, con=db_connection)
 
