@@ -39,7 +39,7 @@ class DashGraph:
                 html.Div(id='graphs', children=self.create_graphs()),
                 dcc.Interval(
                     id='interval-component',
-                    interval=30 * 1000,  # 30 seconds total
+                    interval=120 * 1000,  # 30 seconds total
                     n_intervals=0,
                 )
             ]
