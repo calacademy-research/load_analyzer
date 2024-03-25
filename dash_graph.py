@@ -25,72 +25,34 @@ class DashGraph:
             self.app_setup()
             print("App is set up.")
 
-    # Arguments are 'comm' for by-command and 'username' (default) for by-user
-    # Not used; may delete?
-    def show_percent_usage_by(self, by="username"):
-        # ** drop rows where username == args == pid == host and
-        # retain the record with the highest cpu time.
+    def app_setup(self):
+        self.create_app()
 
-        # Sort so that we choose only the highest value (i.e. final)
-        # cputime. Cputime is cumulative (inherent in the output of linux)
-        df_max_process_usage_only = self.analyze.df.sort_values('cputimes', ascending=False). \
-            drop_duplicates(['username', 'host', 'pid'])
+        @callback(Output('graphs', 'children'),
+                  Input('interval-component', 'n_intervals'))
+        def update_graphs(intervals):
+            analyzer.update_df()
+            return self.create_graphs()
 
-        df_agg = df_max_process_usage_only.groupby([by]). \
-            agg({'pid': 'count',
-                 'cputimes': 'sum',
-                 'rss': 'sum',
-                 'vsz': 'sum',
-                 'etimes': 'sum',
-                 'thcount': 'sum'}). \
-            reset_index(). \
-            rename(columns={'cputimes': 'cputimes_sum', 'pid': 'pid_count'}). \
-            sort_values(by='cputimes_sum', ascending=False)
-        # print(df_agg2.head())
-
-        # hadrien's agg
-        # # This returns comm with the max cpu_norm for each host and at each sampling instance.
-        # test = df_bar_d.sort_values('cpu_norm').drop_duplicates(['snapshot_time_epoch', 'host'], keep='last')
-        # test.sort_values(by='snapshot_time_epoch', inplace=True)
-
-        df_agg = df_agg.head(8)
-        start_date = df_max_process_usage_only['snapshot_datetime_date'].min()
-        end_date = df_max_process_usage_only['snapshot_datetime_date'].max()
-
-        # print(df_agg2.snapshot_datetime.min())
-        fig = px.pie(df_agg,
-                     values='cputimes_sum',
-                     names=by,
-
-                     title=f'Total CPU Time consumption by {by}, {start_date} - {end_date}')
-        fig.show()
+        self.app.layout = html.Div(
+            children=[
+                html.Div(id='graphs', children=self.create_graphs()),
+                dcc.Interval(
+                    id='interval-component',
+                    interval=30 * 1000,  # 30 seconds total
+                    n_intervals=0,
+                )
+            ]
+        )
 
     def create_app(self):
         external_stylesheets = [dbc.themes.BOOTSTRAP, 'https://codepen.io/chriddyp/pen/bWLwgP.css']
         self.server = Flask(__name__)
-
         self.app = dash.Dash(__name__,
                              title='Load analyzer',
                              prevent_initial_callbacks=True,
                              external_stylesheets=external_stylesheets,
                              server=self.server)
-
-    def sidebar_div(self):
-        server_array = self.analyze.df['host'].unique()
-        dropdown = dcc.Dropdown(server_array, server_array[0], id='demo-dropdown')
-        label = dash.html.Label("--------",
-                                style={"margin-left": 0},
-                                )
-        container = html.Div(id='dd-output-container')
-
-        @self.app.callback(
-            Output('dd-output-container', 'children'),
-            Input('demo-dropdown', 'value')
-        )
-        def update_output(value):
-            return f'You have selected {value}'
-
-        return dbc.Row(children=[dropdown, label, container])
 
     def create_graphs(self):
         return [
@@ -107,7 +69,6 @@ class DashGraph:
 
         top_load_command_df = self.analyze.top_load_command(hostname)
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        # fig = go.Figure()
         all_tuples = []
 
         for index, row in top_memory_command_df.iterrows():
@@ -221,26 +182,6 @@ class DashGraph:
 
         graph = dcc.Graph(id=f'load-graph-{hostname}', figure=fig)
         return graph
-
-    def app_setup(self):
-        self.create_app()
-
-        @callback(Output('graphs', 'children'),
-                  Input('interval-component', 'n_intervals'))
-        def update_graphs(intervals):
-            analyzer.update_df()
-            return self.create_graphs()
-
-        self.app.layout = html.Div(
-            children=[
-                html.Div(id='graphs', children=self.create_graphs()),
-                dcc.Interval(
-                    id='interval-component',
-                    interval=30 * 1000,  # 30 seconds total
-                    n_intervals=0,
-                )
-            ]
-        )
 
 analyzer = Analyze(use_tsv=False, use_pickle=False)
 graphs = DashGraph(analyzer)
