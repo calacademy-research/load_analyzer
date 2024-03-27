@@ -1,54 +1,63 @@
 # load_analyzer
 
-This is run in two pieces - the monitoring and database side is run on ibss-central using 
-Docker-compose and docker. The dash based web url is run on ibss-central and launched directly
-from the script "run" et al, and reset via crontab on that machine.
+A realtime visualization of memory and CPU load for CAS servers:
+- rosalindf
+- alice
+- tdobz
 
-to start the monitoring process, run as user "admin", which has the keys set up correctly.
-run "launch-monitor.sh build" to rebuild the docker. without build if yhou're just made code changes.
 
-Running in test mode:
-gunzip processes.tsv.gz
+## Usage
 
+This is run in two pieces:
+1. The monitoring and database side is run on `ibss-central` using `docker-compose` and `docker`.
+2. The dash based web url is run on `ibss-central` and reset via crontab on that machine.
+
+To start the monitoring process, run as user `admin`, which has the keys set up correctly.
+Execute 
+```bash
+launch-monitor.sh build
+```
+to rebuild the docker. Without `build` if you've just made code changes.
+
+To start the dash graphs based portion execute
+```bash
+run.sh
+```
+
+## Debugging:
+A `processts.tsv` file has been provided for test data.
+In `dash_graph.py` where the `Analyze` class is instantiated set `use_tsv=True`.
+Run locally in the command line using:
+```bash
 python3 dash_graph.py
+```
 
-
-Change the line: 
-analyer = Analyze(use_tsv=False, use_pickle=False)
-
-to use_tsv = True
-
-Notes: 
-Deployed in a docker container on ibss-crontab with only the dash app
-Monitoring is in docker on ibss-central. Why did I do it that way?!
-
- bbbd7a727571   load_analyzer_app                            "python monitor.py"      5 months ago    Up 3 days                                                                                        
-load_analyzer_app_1
-
----
-
-
-Docker:
+## Docker:
+```bash
 mkdir data
 docker-compose build
 docker-compose up
+```
 
-Adding new servers:
-Edit docker-compose IP mapping
-edit monitor.py list of servers. E.g.:
+## Adding new servers:
+- Edit docker-compose IP mapping.
+- Edit monitor.py list of servers. E.g.:
+```bash
 HOSTS = ['rosalindf', 'alice', 'tdobz']
+```
 
+## Notes: 
+Deployed in a docker container on `ibss-crontab` with only the dash app.
+Monitoring is in docker on `ibss-central`. Why did I do it that way?!
 
-TODO: Make hosts configurable
-Todo: Make db password clean
+## TODO:
 
-
-todo: Pull down to select server? or display all N servers at once?
-todo: Should we pull any other stats? disk IO/ops?
-TODO: Dockerize server and place online
-todo: generate a per-user report - your core hours this month, top N processes, pie showing your %age ram 
+- TODO: Make hosts configurable
+- TODO: Make db password clean
+- TODO: Should we pull any other stats? disk IO/ops?
+- TODO: generate a per-user report - your core hours this month, top N processes, pie showing your %age ram 
 and %age CPU.
-TODO: Generate real time alerts for the top N when the system is at or near capacity.
-TODO: track GPU usage
-TOOD: Extract a single process and trace its CPU/memory usage over the lifetime of the run
+- TODO: Generate real time alerts for the top N when the system is at or near capacity.
+- TODO: track GPU usage
+- TOOD: Extract a single process and trace its CPU/memory usage over the lifetime of the run
 
