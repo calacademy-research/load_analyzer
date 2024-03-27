@@ -25,13 +25,10 @@ run.sh
 ```
 
 ## Debugging:
-TODO: source a `.tsv` file of process information.
-
-In `dash_graph.py` where the `Analyze` class is instantiated set `use_tsv=true`.
-
-Unzip the file if compressed and run in the command line using:
+A `processts.tsv` file has been provided for test data.
+In `dash_graph.py` where the `Analyze` class is instantiated set `use_tsv=True`.
+Run locally in the command line using:
 ```bash
-gunzip processes.tsv.gz
 python3 dash_graph.py
 ```
 

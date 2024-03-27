@@ -99,9 +99,9 @@ class Analyze():
     def read_tsv(self):
         filepath = './processes.tsv'
 
-        col_Names = ['pid', 'username', 'comm', 'cputimes', 'rss', 'vsz', 'thcount', 'etimes', 'bdstart', 'args',
-                     'snapshot_time_epoch', 'snapshot_datetime', 'host']  # from processes.tsv
-        df = pd.read_csv(filepath, float_precision=None, sep='\t', header=0, names=col_Names)
+        column_names = ['pid', 'username', 'comm', 'cputimes', 'rss', 'vsz', 'thcount', 'etimes', 'bdstart', 'args',
+                     'snapshot_time_epoch', 'snapshot_datetime', 'host', 'ppid']
+        df = pd.read_csv(filepath, float_precision=None, sep='\t', header=0, names=column_names)
 
         # print(df.shape, f"\n", df.dtypes)
 
