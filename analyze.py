@@ -95,16 +95,9 @@ class Analyze():
 
         return df
 
-    ## *****ReadTSV******** Hadrien's contribution ********************
     def read_tsv(self):
         filepath = './processes.tsv'
-
-        column_names = ['pid', 'username', 'comm', 'cputimes', 'rss', 'vsz', 'thcount', 'etimes', 'bdstart', 'args',
-                     'snapshot_time_epoch', 'snapshot_datetime', 'host', 'ppid']
-        df = pd.read_csv(filepath, float_precision=None, sep='\t', header=0, names=column_names)
-
-        # print(df.shape, f"\n", df.dtypes)
-
+        df = pd.read_csv(filepath, float_precision=None, sep='\t', header=0)
         return df
 
     def initial_data_wrangling(self, raw_dataframe):
@@ -138,18 +131,6 @@ class Analyze():
 
         self.df = df
         self.reduced = reduced
-
-    # def usage(self, df, host=None):
-    #     df.dropna(inplace=True)
-    #     if host is not None:
-    #         df.drop(df[df.host != host].index, inplace=True)
-    #
-    #     df_agg = df.groupby('snapshot_datetime'). \
-    #         agg({'pid': 'count',
-    #              'cpu_norm': 'sum'}). \
-    #         reset_index().sort_values(by='snapshot_datetime', ascending=True)
-    #
-    #     return df_agg
 
     def top_load_command(self, limit_to_host=None):
         ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
