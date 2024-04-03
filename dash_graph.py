@@ -50,7 +50,6 @@ class DashGraph:
         self.server = Flask(__name__)
         self.app = dash.Dash(__name__,
                              title='Load analyzer',
-                             prevent_initial_callbacks=True,
                              external_stylesheets=external_stylesheets,
                              server=self.server)
 
