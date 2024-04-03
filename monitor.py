@@ -8,7 +8,7 @@ db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf'
 # db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
 
 
-HOSTS = ['rosalindf', 'alice', 'tdobz']
+HOSTS = ['rosalindf', 'alice', 'tdobz', 'flor']
 ps_arg_tuples = [
     ('pid', 'process ID'),
     ('ppid', 'parent process ID'),

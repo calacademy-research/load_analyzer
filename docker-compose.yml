@@ -21,6 +21,7 @@ services:
      - "alice:10.1.10.183"
      - "rosalindf:10.1.10.182"
      - "tdobz:10.1.10.205"
+     - "flor:10.1.10.176"
     networks:
       - python
 

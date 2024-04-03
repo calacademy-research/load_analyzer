@@ -56,6 +56,7 @@ class DashGraph:
 
     def create_graphs(self):
         return [
+            self.unified_graph_one_server('flor', 256, 1500),
             self.unified_graph_one_server('rosalindf', 256, 2000),
             self.unified_graph_one_server('alice', 192, 1000),
             self.unified_graph_one_server('tdobz', 96, 1000)

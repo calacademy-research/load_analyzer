@@ -43,7 +43,7 @@ docker-compose up
 - Edit docker-compose IP mapping.
 - Edit monitor.py list of servers. E.g.:
 ```bash
-HOSTS = ['rosalindf', 'alice', 'tdobz']
+HOSTS = ['rosalindf', 'alice', 'tdobz', 'flor']
 ```
 
 ## Notes: 
