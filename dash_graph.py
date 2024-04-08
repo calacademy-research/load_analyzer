@@ -34,7 +34,10 @@ class DashGraph:
             analyzer.update_df()
             return self.create_graphs()
 
-        self.app.layout = html.Div(
+        self.app.layout = self.get_layout
+
+    def get_layout(self):
+        return html.Div(
             children=[
                 html.Div(id='graphs', children=self.create_graphs()),
                 dcc.Interval(
