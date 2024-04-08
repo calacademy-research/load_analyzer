@@ -54,6 +54,7 @@ class DashGraph:
         self.app = dash.Dash(__name__,
                              title='Load analyzer',
                              external_stylesheets=external_stylesheets,
+                             prevent_initial_callbacks=True,
                              server=self.server)
 
     def create_graphs(self):
