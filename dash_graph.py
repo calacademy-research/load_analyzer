@@ -1,10 +1,9 @@
-import plotly.express as px
-from dash import dcc, html, Input, Output, callback
 import dash
-from flask import Flask
 import dash_bootstrap_components as dbc
-import plotly.graph_objects as go
 import numpy as np
+import plotly.graph_objects as go
+from dash import dcc, html, Input, Output, callback
+from flask import Flask
 from plotly.subplots import make_subplots
 
 from analyze import Analyze
@@ -26,14 +25,19 @@ class DashGraph:
             print("App is set up.")
 
     def app_setup(self):
-        self.create_app()
-
+        external_stylesheets = [dbc.themes.BOOTSTRAP, 'https://codepen.io/chriddyp/pen/bWLwgP.css']
         @callback(Output('graphs', 'children'),
                   Input('interval-component', 'n_intervals'))
         def update_graphs(intervals):
             analyzer.update_df()
             return self.create_graphs()
 
+        self.server = Flask(__name__)
+        self.app = dash.Dash(__name__,
+                             title='Load analyzer',
+                             external_stylesheets=external_stylesheets,
+                             prevent_initial_callbacks=True,
+                             server=self.server)
         self.app.layout = self.get_layout
 
     def get_layout(self):
@@ -47,15 +51,6 @@ class DashGraph:
                 )
             ]
         )
-
-    def create_app(self):
-        external_stylesheets = [dbc.themes.BOOTSTRAP, 'https://codepen.io/chriddyp/pen/bWLwgP.css']
-        self.server = Flask(__name__)
-        self.app = dash.Dash(__name__,
-                             title='Load analyzer',
-                             external_stylesheets=external_stylesheets,
-                             prevent_initial_callbacks=True,
-                             server=self.server)
 
     def create_graphs(self):
         return [
