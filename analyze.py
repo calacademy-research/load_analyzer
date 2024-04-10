@@ -71,28 +71,22 @@ class Analyze():
         self.df = self.reduced
 
     def read_sql(self):
-        # host = 'ibss-central'
         host = '10.1.10.123'
         database = 'load'
         user = 'root'
         password = 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf'
         port = 3312
-
         db_connection = create_engine(url="mysql+pymysql://{0}:{1}@{2}:{3}/{4}".format(
             user, password, host, port, database
         ))
         print(f"connected to database on {host}...")
 
         time_window = datetime.datetime.now() - datetime.timedelta(days=10)
-
-        # df = pd.read_sql('SELECT * FROM processes', con=db_connection)
         sql_string = f"SELECT * FROM processes WHERE snapshot_datetime >= '{time_window.strftime('%Y-%m-%d %H:%M:%S')}'"
         print(f"Reading using sql: {sql_string}")
+
         df = pd.read_sql(sql_string, con=db_connection)
-
-        # print(df.shape, f"\n", df.dtypes)
-        print("db read compelte.")
-
+        print("db read complete.")
         return df
 
     def read_tsv(self):
@@ -103,10 +97,6 @@ class Analyze():
     def initial_data_wrangling(self, raw_dataframe):
         df = raw_dataframe
 
-        df['snapshot_datetime'] = pd.to_datetime(df['snapshot_datetime'], dayfirst=True)
-        df['snapshot_datetime' + str('_date')] = df['snapshot_datetime'].dt.strftime("%m/%d/%y")
-        df['snapshot_datetime' + str('_daytime')] = df['snapshot_datetime'].dt.day_name() + " " + df[
-            'snapshot_datetime'].dt.strftime('%d') + ", " + df['snapshot_datetime'].dt.strftime('%H')
         df = df.sort_values(by='snapshot_datetime', ascending=True)
         ## Converting bytes to Gb for rss and vsz
         df['rss'] = (df['rss'] / 1000000).round(2)
