@@ -25,23 +25,24 @@ class DashGraph:
             print("App is set up.")
 
     def app_setup(self):
-        external_stylesheets = [dbc.themes.BOOTSTRAP, 'https://codepen.io/chriddyp/pen/bWLwgP.css']
         @callback(Output('graphs', 'children'),
                   Input('interval-component', 'n_intervals'))
-        def update_graphs(intervals):
+        def update_graphs(_):
             analyzer.update_df()
             return self.create_graphs()
 
         self.server = Flask(__name__)
         self.app = dash.Dash(__name__,
                              title='Load analyzer',
-                             external_stylesheets=external_stylesheets,
                              prevent_initial_callbacks=True,
                              server=self.server)
         self.app.layout = self.get_layout
 
     def get_layout(self):
-        return html.Div(
+        return dcc.Loading(
+            id='loading-component',
+            type='graph',
+            fullscreen=True,
             children=[
                 html.Div(id='graphs', children=self.create_graphs()),
                 dcc.Interval(
@@ -62,10 +63,8 @@ class DashGraph:
 
     def unified_graph_one_server(self, hostname, cpu_limit, mem_limit):
         top_memory_users_commands_df = self.analyze.top_users_memory_commands(hostname)
-
         top_memory_command_df = self.analyze.top_memory_command(hostname)
         top_load_users_commands_df = self.analyze.top_users_load_commands(hostname)
-
         top_load_command_df = self.analyze.top_load_command(hostname)
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         all_tuples = []
