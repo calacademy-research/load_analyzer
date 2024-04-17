@@ -140,21 +140,6 @@ class Analyze():
 
         return top_command
 
-    def top_users_memory_commands(self, limit_to_host=None):
-        df_max_0 = self.common_group_memory(limit_to_host).groupby(
-            ['snapshot_datetime', 'comm', 'host', 'username']).agg(
-            {'rss': 'sum'}).reset_index()
-        top_users_and_commands = df_max_0[df_max_0['rss'] > 2]
-
-        return top_users_and_commands
-
-    def top_users_load_commands(self, limit_to_host=None):
-        df_max_0 = self.common_group_load(limit_to_host).groupby(['snapshot_datetime', 'comm', 'host', 'username']).agg(
-            {'cpu_norm': 'sum'}).reset_index()
-        top_users_and_commands = df_max_0[df_max_0['cpu_norm'] > 2]
-
-        return top_users_and_commands
-
     def common_group_memory(self, limit_to_host=None):
         df_grouped = self.df.groupby(['snapshot_datetime', 'host', 'comm', 'username'])[
             'rss'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
