@@ -64,7 +64,6 @@ class Analyze():
                 with open(self.PICKLE_FILE, 'rb') as dbfile:
                     self.df = pickle.load(dbfile)
 
-
     def update_df(self):
         initial_df = self.read_sql()
         self.initial_data_wrangling(initial_df)
@@ -95,16 +94,14 @@ class Analyze():
         return df
 
     def initial_data_wrangling(self, raw_dataframe):
-        df = raw_dataframe
-
-        df = df.sort_values(by='snapshot_datetime', ascending=True)
+        df = raw_dataframe.sort_values(by='snapshot_datetime', ascending=True)
         ## Converting bytes to Gb for rss and vsz
         df['rss'] = (df['rss'] / 1000000).round(2)
         df['vsz'] = (df['vsz'] / 1000000).round(2)
         ## This needs to happen before aggregating by time, otherwise the values will become distored (we're normalizing by seconds)
         df['cpu_diff'] = (df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()).fillna(0)
         df['seconds_diff'] = (
-                df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
+                    df['snapshot_time_epoch'] - df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
         df['cpu_norm'] = (df['cpu_diff'].div(df['seconds_diff'])).fillna(0)
         df = df[df['cpu_norm'] != 0]  ## Filtering out all rows where cpu_norm = 0.
 
