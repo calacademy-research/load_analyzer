@@ -30,7 +30,9 @@ class DashGraph:
         )
         def update_graphs(_):
             analyzer.update_df()
-            return self.create_graphs(), {'display' : 'none'}
+            fig = self.create_graphs()
+            fig.uirevision = 'preserve UI state during updates'
+            return fig, {'display' : 'none'}
 
         self.server = Flask(__name__)
         self.app = dash.Dash(__name__,
