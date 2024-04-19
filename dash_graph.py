@@ -23,11 +23,14 @@ class DashGraph:
             print("App is set up.")
 
     def app_setup(self):
-        @callback(Output('graphs', 'children'),
-                  Input('interval-component', 'n_intervals'))
+        @callback(
+            [Output('graphs', 'children'),
+            Output('loading', 'parent_style')],
+            Input('interval-component', 'n_intervals')
+        )
         def update_graphs(_):
             analyzer.update_df()
-            return self.create_graphs()
+            return self.create_graphs(), {'display' : 'none'}
 
         self.server = Flask(__name__)
         self.app = dash.Dash(__name__,
@@ -37,11 +40,13 @@ class DashGraph:
         self.app.layout = self.get_layout
 
     def get_layout(self):
-        return dcc.Loading(
-            id='loading-component',
-            type='graph',
-            fullscreen=True,
+        return html.Div(
             children=[
+                dcc.Loading(
+                    id='loading',
+                    type='graph',
+                    fullscreen=True
+                ),
                 html.Div(id='graphs', children=self.create_graphs()),
                 dcc.Interval(
                     id='interval-component',
