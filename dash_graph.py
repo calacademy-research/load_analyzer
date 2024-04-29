@@ -24,15 +24,14 @@ class DashGraph:
 
     def app_setup(self):
         @callback(
-            [Output('graphs', 'children'),
-            Output('loading', 'parent_style')],
+            Output('graphs', 'children'),
             Input('interval-component', 'n_intervals')
         )
         def update_graphs(_):
             analyzer.update_df()
             fig = self.create_graphs()
             fig.uirevision = 'preserve UI state during updates'
-            return fig, {'display' : 'none'}
+            return fig
 
         self.server = Flask(__name__)
         self.app = dash.Dash(__name__,
@@ -44,11 +43,6 @@ class DashGraph:
     def get_layout(self):
         return html.Div(
             children=[
-                dcc.Loading(
-                    id='loading',
-                    type='graph',
-                    fullscreen=True
-                ),
                 html.Div(id='graphs', children=self.create_graphs()),
                 dcc.Interval(
                     id='interval-component',
