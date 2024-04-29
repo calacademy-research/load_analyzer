@@ -31,7 +31,6 @@ class DashGraph:
         def update_graphs(_):
             analyzer.update_df()
             fig = self.create_graphs()
-            fig.uirevision = 'preserve UI state during updates'
             return fig, {'display' : 'none'}
 
         self.server = Flask(__name__)
@@ -96,6 +95,7 @@ class DashGraph:
         fig.update_yaxes(range=[0, mem_limit], secondary_y=True, title="Memory usage")
         fig.update_yaxes(range=[0, cpu_limit], secondary_y=False, title="CPU usage")
         fig.update_layout(title=f"CPU and memory usage on {hostname}")
+        fig.update_layout(uirevision='preserve UI state during updates')
 
         return dcc.Graph(id=f'unified-graph-{hostname}', figure=fig)
 
