@@ -46,7 +46,7 @@ matplotlib
 matplotlib-inline
 mistune
 mysql
-mysql-connector
+mysql-connector-python
 mysqlclient
 nbclient
 nbconvert
