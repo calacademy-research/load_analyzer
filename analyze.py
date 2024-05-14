@@ -119,26 +119,39 @@ class Analyze():
         self.df = df
         self.reduced = reduced
 
-    def top_load_command(self, limit_to_host=None):
+    def top_load_commands(self, limit_to_host=None):
         ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
-
-        top_command = self.common_group_load(limit_to_host).sort_values('cpu_norm').drop_duplicates(
+        top_commands = self.common_group_load(limit_to_host).sort_values('cpu_norm').drop_duplicates(
             ['snapshot_datetime',
              'host'],
             keep='last')  # Filter for max cpu diff and id the process command
-        top_command.sort_values(by='snapshot_datetime', inplace=True)
+        top_commands.sort_values(by='snapshot_datetime', inplace=True)
 
-        return top_command
+        return top_commands
 
-    def top_memory_command(self, limit_to_host=None):
+    def top_load_users(self, limit_to_host=None):
+        df_max_0 = self.common_group_load(limit_to_host).groupby(['snapshot_datetime', 'comm', 'host', 'username']).agg(
+            {'cpu_norm': 'sum'}).reset_index()
+        top_users = df_max_0[df_max_0['cpu_norm'] > 2]
+
+        return top_users
+
+    def top_memory_commands(self, limit_to_host=None):
         ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
+        top_commands = self.common_group_memory(limit_to_host).sort_values('rss').drop_duplicates(['snapshot_datetime',
+             'host'],
+            keep='last')  # Filter for max cpu diff and id the process command
+        top_commands.sort_values(by='snapshot_datetime', inplace=True)
 
-        top_command = self.common_group_memory(limit_to_host).sort_values('rss').drop_duplicates(['snapshot_datetime',
-                                                                                                  'host'],
-                                                                                                 keep='last')  # Filter for max cpu diff and id the process command
-        top_command.sort_values(by='snapshot_datetime', inplace=True)
+        return top_commands
+    
+    def top_memory_users(self, limit_to_host=None):
+        df_max_0 = self.common_group_memory(limit_to_host).groupby(
+            ['snapshot_datetime', 'comm', 'host', 'username']).agg(
+            {'rss': 'sum'}).reset_index()
+        top_users = df_max_0[df_max_0['rss'] > 2]
 
-        return top_command
+        return top_users
 
     def common_group_memory(self, limit_to_host=None):
         df_grouped = self.df.groupby(['snapshot_datetime', 'host', 'comm', 'username'])[

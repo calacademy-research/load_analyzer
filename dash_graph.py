@@ -1,4 +1,5 @@
 import dash
+import numpy as np
 import plotly.express as px
 from dash import dcc, html, Input, Output, callback
 from flask import Flask
@@ -65,28 +66,75 @@ class DashGraph:
             self.unified_graph_one_server('tdobz', 96, 1000)
         ]
 
+    def memory_hover_data(self, top_memory_command_df, hostname):
+        all_tuples = []
+        top_memory_users = self.analyze.top_memory_users(hostname)
+        for index, row in top_memory_command_df.iterrows():
+            entry = ''
+            cur_datetime = row['snapshot_datetime']
+            tops = top_memory_users[
+                top_memory_users['snapshot_datetime'] == cur_datetime].sort_values(
+                by='rss', ascending=False)
+            for sindex, srow in tops.iterrows():
+                entry += f"<br>Host: {srow['host']} username: {srow['username']} mem: {srow['rss']:.2f}G command: {srow['comm']}"
+
+            all_tuples.append(entry)
+
+        return np.stack(all_tuples, axis=-1)
+
+    def load_hover_data(self, top_load_command_df, hostname):
+        all_tuples = []
+        top_load_users = self.analyze.top_load_users(hostname)
+        for index, row in top_load_command_df.iterrows():
+            entry = ''
+            cur_datetime = row['snapshot_datetime']
+            tops = top_load_users[
+                top_load_users['snapshot_datetime'] == cur_datetime].sort_values(
+                by='cpu_norm', ascending=False)
+            for sindex, srow in tops.iterrows():
+                entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']:.2f} command: {srow['comm']}"
+
+            all_tuples.append(entry)
+
+        return np.stack(all_tuples, axis=-1)
+
     def unified_graph_one_server(self, hostname, cpu_limit, mem_limit):
-        top_memory_command_df = self.analyze.top_memory_command(hostname)
-        top_load_command_df = self.analyze.top_load_command(hostname)
+        top_memory_command_df = self.analyze.top_memory_commands(hostname)
+        top_memory_command_df['hover_data'] = self.memory_hover_data(top_memory_command_df, hostname)
+        top_load_command_df = self.analyze.top_load_commands(hostname)
+        top_load_command_df['hover_data'] = self.load_hover_data(top_load_command_df, hostname)
         fig = make_subplots(specs=[[{"secondary_y": True}]])
 
         memory_trace = px.line(
             top_memory_command_df,
             x='snapshot_datetime',
             y='rss',
-            hover_data={'snapshot_datetime': True, 'rss': ':.2f', 'host': True, 'username': True, 'comm': True},
+            custom_data=['hover_data'],
             color_discrete_sequence=['red'],
             labels={'snapshot_datetime': 'Time', 'rss': 'Total memory (GB)', 'comm': 'command'},
             title=f"CPU and memory usage on {hostname}")
+
+        memory_trace.update_traces(
+            hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
+                           '<i>Total memory</i>: %{y:.2f}G' + \
+                           '<br>%{customdata[0]}'
+                           )
+        )
 
         load_trace = px.line(
             top_load_command_df,
             x='snapshot_datetime',
             y='cpu_norm',
-            hover_data={'snapshot_datetime': True, 'cpu_norm': ':.2f', 'host': True, 'username': True, 'comm': True},
+            custom_data=['hover_data'],
             color_discrete_sequence=['blue'],
             labels={'snapshot_datetime': 'Time', 'cpu_norm': 'Total load', 'comm': 'command'},
             title=f"CPU and memory usage on {hostname}"
+        )
+
+        load_trace.update_traces(
+            hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
+                           '<i>Total load</i>: %{y:.2f}' + \
+                           '<br>%{customdata[0]}')
         )
 
         fig.add_trace(load_trace.data[0])
