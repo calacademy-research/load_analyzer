@@ -120,11 +120,8 @@ class Analyze():
         self.reduced = reduced
 
     def top_load_commands(self, limit_to_host=None):
-        ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
-        top_commands = self.common_group_load(limit_to_host).sort_values('cpu_norm').drop_duplicates(
-            ['snapshot_datetime',
-             'host'],
-            keep='last')  # Filter for max cpu diff and id the process command
+        top_commands = self.common_group_load(limit_to_host).groupby(['snapshot_datetime']).agg(
+            {'cpu_norm': 'sum'}).reset_index()
         top_commands.sort_values(by='snapshot_datetime', inplace=True)
 
         return top_commands
@@ -137,10 +134,9 @@ class Analyze():
         return top_users
 
     def top_memory_commands(self, limit_to_host=None):
-        ## Feature engineering: identify the max CPU normalized difference at each sample time for each host
-        top_commands = self.common_group_memory(limit_to_host).sort_values('rss').drop_duplicates(['snapshot_datetime',
-             'host'],
-            keep='last')  # Filter for max cpu diff and id the process command
+        top_commands = self.common_group_memory(limit_to_host).groupby(['snapshot_datetime', 'host']).agg(
+            {'rss': 'sum'}).reset_index()
+        print(top_commands)
         top_commands.sort_values(by='snapshot_datetime', inplace=True)
 
         return top_commands
