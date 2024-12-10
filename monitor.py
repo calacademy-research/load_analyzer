@@ -26,7 +26,7 @@ ps_arg_tuples = [
 
 ps_args = ''
 for arg_tuple in ps_arg_tuples:
-    ps_args += ' -o "|%p" -o '
+    ps_args += ' -o "|%p " -o '
     ps_args += arg_tuple[0]
 
 COMMAND = f"ps  -e {ps_args}"
