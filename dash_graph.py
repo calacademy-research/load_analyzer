@@ -69,6 +69,8 @@ class DashGraph:
     def memory_hover_data(self, top_memory_command_df, hostname):
         all_tuples = []
         top_memory_users = self.analyze.top_memory_users(hostname)
+        if top_memory_users.empty:
+            return []
         for index, row in top_memory_command_df.iterrows():
             entry = ''
             cur_datetime = row['snapshot_datetime']
@@ -85,6 +87,8 @@ class DashGraph:
     def load_hover_data(self, top_load_command_df, hostname):
         all_tuples = []
         top_load_users = self.analyze.top_load_users(hostname)
+        if top_load_users.empty:
+            return []
         for index, row in top_load_command_df.iterrows():
             entry = ''
             cur_datetime = row['snapshot_datetime']
@@ -104,41 +108,42 @@ class DashGraph:
         top_load_command_df = self.analyze.top_load_commands(hostname)
         top_load_command_df['hover_data'] = self.load_hover_data(top_load_command_df, hostname)
         fig = make_subplots(specs=[[{"secondary_y": True}]])
+        if not top_load_command_df.empty:
+            load_trace = px.line(
+                top_load_command_df,
+                x='snapshot_datetime',
+                y='cpu_norm',
+                custom_data=['hover_data'],
+                color_discrete_sequence=['blue'],
+                labels={'snapshot_datetime': 'Time', 'cpu_norm': 'Total load', 'comm': 'command'},
+                title=f"CPU and memory usage on {hostname}"
+            )
 
-        memory_trace = px.line(
-            top_memory_command_df,
-            x='snapshot_datetime',
-            y='rss',
-            custom_data=['hover_data'],
-            color_discrete_sequence=['red'],
-            labels={'snapshot_datetime': 'Time', 'rss': 'Total memory (GB)', 'comm': 'command'},
-            title=f"CPU and memory usage on {hostname}")
+            load_trace.update_traces(
+                hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
+                            '<i>Total load</i>: %{y:.2f}' + \
+                            '<br>%{customdata[0]}')
+            )
+            fig.add_trace(load_trace.data[0])
 
-        memory_trace.update_traces(
-            hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
-                           '<i>Total memory</i>: %{y:.2f}G' + \
-                           '<br>%{customdata[0]}'
-                           )
-        )
+        if not top_memory_command_df.empty:
+            memory_trace = px.line(
+                top_memory_command_df,
+                x='snapshot_datetime',
+                y='rss',
+                custom_data=['hover_data'],
+                color_discrete_sequence=['red'],
+                labels={'snapshot_datetime': 'Time', 'rss': 'Total memory (GB)', 'comm': 'command'},
+                title=f"CPU and memory usage on {hostname}"
+            )
 
-        load_trace = px.line(
-            top_load_command_df,
-            x='snapshot_datetime',
-            y='cpu_norm',
-            custom_data=['hover_data'],
-            color_discrete_sequence=['blue'],
-            labels={'snapshot_datetime': 'Time', 'cpu_norm': 'Total load', 'comm': 'command'},
-            title=f"CPU and memory usage on {hostname}"
-        )
-
-        load_trace.update_traces(
-            hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
-                           '<i>Total load</i>: %{y:.2f}' + \
-                           '<br>%{customdata[0]}')
-        )
-
-        fig.add_trace(load_trace.data[0])
-        fig.add_trace(memory_trace.data[0], secondary_y=True)
+            memory_trace.update_traces(
+                hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
+                            '<i>Total memory</i>: %{y:.2f}G' + \
+                            '<br>%{customdata[0]}'
+                            )
+            )
+            fig.add_trace(memory_trace.data[0], secondary_y=True)
 
         fig.update_yaxes(range=[0, mem_limit], secondary_y=True, title="Memory usage")
         fig.update_yaxes(range=[0, cpu_limit], secondary_y=False, title="CPU usage")
