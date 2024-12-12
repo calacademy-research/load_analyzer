@@ -5,6 +5,7 @@ import pandas as pd
 import pickle
 import os
 import datetime
+from app.config import DB_CONFIG
 
 '''
     PID: The process ID (every process is assigned a number as an ID).
@@ -64,24 +65,27 @@ class Analyze():
                 with open(self.PICKLE_FILE, 'rb') as dbfile:
                     self.df = pickle.load(dbfile)
 
-    def update_df(self):
-        initial_df = self.read_sql()
+    def update_df(self, start_date=None, end_date=None):
+        initial_df = self.read_sql(start_date, end_date)
         self.initial_data_wrangling(initial_df)
         self.df = self.reduced
 
-    def read_sql(self):
-        host = '10.1.10.123'
-        database = 'load'
-        user = 'root'
-        password = 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf'
-        port = 3312
-        db_connection = create_engine(url="mysql+pymysql://{0}:{1}@{2}:{3}/{4}".format(
-            user, password, host, port, database
-        ))
-        print(f"connected to database on {host}...")
+    def read_sql(self, start_date=None, end_date=None):
+        if start_date is None:
+            start_date = (datetime.datetime.now() - datetime.timedelta(days=3)).strftime('%Y-%m-%d')
+        if end_date is None:
+            end_date = datetime.datetime.now().strftime('%Y-%m-%d')
 
-        time_window = datetime.datetime.now() - datetime.timedelta(days=10)
-        sql_string = f"SELECT * FROM processes WHERE snapshot_datetime >= '{time_window.strftime('%Y-%m-%d %H:%M:%S')}'"
+        db_connection = create_engine(url="mysql+pymysql://{0}:{1}@{2}:{3}/{4}".format(
+            DB_CONFIG['user'],
+            DB_CONFIG['password'],
+            DB_CONFIG['host'],
+            DB_CONFIG['port'],
+            DB_CONFIG['database']
+        ))
+        print(f"connected to database on {DB_CONFIG['host']}...")
+
+        sql_string = f"SELECT * FROM processes WHERE snapshot_datetime BETWEEN '{start_date} 00:00:00' AND '{end_date} 23:59:59'"
         print(f"Reading using sql: {sql_string}")
 
         df = pd.read_sql(sql_string, con=db_connection)
@@ -136,7 +140,6 @@ class Analyze():
     def top_memory_commands(self, limit_to_host=None):
         top_commands = self.common_group_memory(limit_to_host).groupby(['snapshot_datetime', 'host']).agg(
             {'rss': 'sum'}).reset_index()
-        print(top_commands)
         top_commands.sort_values(by='snapshot_datetime', inplace=True)
 
         return top_commands
