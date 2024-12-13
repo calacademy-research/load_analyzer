@@ -32,7 +32,7 @@ class DashGraph:
                             server=self.server)
 
         default_end_date = datetime.datetime.now()
-        default_start_date = default_end_date - datetime.timedelta(days=3)
+        default_start_date = default_end_date - datetime.timedelta(days=1)
 
         self.app.layout = html.Div(
             children=[
@@ -48,8 +48,9 @@ class DashGraph:
                 ], style={'margin': '10px'}),
                 dcc.Loading(
                     id='loading',
-                    type='graph',
-                    fullscreen=True
+                    type='circle',
+                    fullscreen=True,
+                    color='#119DFF',
                 ),
                 html.Div(id='graphs', children=self.create_graphs()),
                 dcc.Interval(
@@ -66,12 +67,12 @@ class DashGraph:
             [Input('submit-button', 'n_clicks'),
              Input('interval-component', 'n_intervals')],
             [State('date-range', 'start_date'),
-             State('date-range', 'end_date')]
+             State('date-range', 'end_date')],
+            prevent_initial_call=False
         )
         def update_graphs(n_clicks, n_intervals, start_date, end_date):
             analyzer.update_df(start_date, end_date)
-            fig = self.create_graphs()
-            return fig, {'display': 'none'}
+            return self.create_graphs(), {'display': 'block'}
 
     def get_layout(self):
         return html.Div(
