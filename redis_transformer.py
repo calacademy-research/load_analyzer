@@ -7,6 +7,8 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from collections import OrderedDict
+import time
+from functools import wraps
 
 from sqlalchemy import create_engine
 from app.config import DB_CONFIG
@@ -18,6 +20,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 hosts = ['flor', 'rosalindf', 'alice', 'tdobz']
+
+def timer(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        duration = end_time - start_time
+        logger.info(f"{func.__name__} took {duration:.2f} seconds to execute")
+        return result
+    return wrapper
 
 class RedisBase:
     """Base class for Redis operations with common initialization"""
@@ -37,13 +50,14 @@ class RedisBase:
             socket_connect_timeout=5,
             retry_on_timeout=True
         )
+    @timer
     def read_sql(self, start_date=None, end_date=None):
         print(f"start_date: {start_date}")
         print(f"end_date: {end_date}")
         if start_date is None:
-            start_date = (datetime.now() - timedelta(days=3,minutes=20)).strftime('%Y-%m-%d %H:%M:%S')
+            start_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
         if end_date is None:
-            end_date = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
+            end_date = (datetime.now()).strftime('%Y-%m-%d %H:%M:%S')
 
         db_connection = create_engine(url="mysql+pymysql://{0}:{1}@{2}:{3}/{4}".format(
             DB_CONFIG['user'],
@@ -53,7 +67,6 @@ class RedisBase:
             DB_CONFIG['database']
         ))
         print(f"connected to database on {DB_CONFIG['host']}...")
-        print(f"start_date: {start_date}")
         sql_string = f"SELECT * FROM processes WHERE snapshot_datetime BETWEEN '{start_date}' AND '{end_date}'"
         print(f"Reading using sql: {sql_string}")
 
@@ -70,6 +83,7 @@ class RedisReader(RedisBase):
         wait=wait_exponential(multiplier=1, min=4, max=10),
         retry=retry_if_exception_type(redis.RedisError)
     )
+    @timer
     def get_data(self, host: Optional[str] = None, 
                  start_time: Optional[datetime] = None, 
                  end_time: Optional[datetime] = None,
@@ -128,13 +142,17 @@ class RedisWriter(RedisBase):
         wait=wait_exponential(multiplier=1, min=4, max=10),
         retry=retry_if_exception_type(redis.RedisError)
     )
+    @timer
     def _batch_write(self, expire_time: int = 86400 * 30) -> None:
         """Batch write data to Redis"""
         pipeline = self.redis_client.pipeline()
         try:
             for key, value in self.batch_data.items():
-                pipeline.set(key, json.dumps(value))
-                pipeline.expire(key, expire_time)
+                try:
+                    pipeline.set(key, json.dumps(value))
+                    pipeline.expire(key, expire_time)
+                except Exception as e:
+                    logger.error(f"Failed to set key {key}: {str(e)}")
             pipeline.execute()
         except Exception as e:
             logger.error(f"Batch write failed: {str(e)}")
@@ -145,12 +163,13 @@ class RedisWriter(RedisBase):
                       end_time: Optional[datetime] = None) -> List[Dict]:
         """Get data from SQL database"""
         if start_time is None:
-            start_time = date.today()
+            start_time = date.today() - timedelta(days=1)
         if end_time is None:
-            end_time = date.today() + datetime.timedelta(days=1)
+            end_time = date.today() + timedelta(days=1)
         logger.info(f"Fetching SQL data from {start_time} to {end_time}")
         return self.read_sql(start_time, end_time)
 
+    @timer
     def _data_wrangling(self):
         """Process and transform the raw data"""
         raw_dataframe = self._get_sql_data()
@@ -185,25 +204,34 @@ class RedisWriter(RedisBase):
         reduced.drop(['cpu_diff', 'seconds_diff'], axis=1, inplace=True)
         return reduced
 
-    def _process_host_data(self, df: pd.DataFrame, host: str, data_type: str, 
+    def _process_host_data(self, df: pd.DataFrame, host: str, category: str, data_type: str, 
                           threshold: float = None) -> pd.DataFrame:
         """Process data for a specific host"""
+        if category == 'cpu':
+            aggre_key = 'cpu_norm'
+        else:   # mem
+            aggre_key = 'rss'
         df_grouped = df.groupby(['snapshot_datetime', 'host', 'comm', 'username'])[
-            'cpu_norm'].sum().reset_index()
-        df_grouped = df_grouped[df_grouped['cpu_norm'] != 0]
+            aggre_key].sum().reset_index()
+        df_grouped = df_grouped[df_grouped[aggre_key] != 0]
         df_grouped = df_grouped[df_grouped['host'] == host]
         
         if data_type == 'command':
             result = df_grouped.groupby(['snapshot_datetime']).agg(
-                {'cpu_norm': 'sum'}).reset_index()
+                {aggre_key: 'sum'}).reset_index()
         else:  # user
             result = df_grouped.groupby(['snapshot_datetime', 'username', 'comm', 'host']).agg(
-                {'cpu_norm': 'sum'}).reset_index()
+                {aggre_key: 'sum'}).reset_index()
             if threshold is not None:
-                result = result[result['cpu_norm'] > threshold]
-                
+                result = result[result[aggre_key] > threshold]
+        try:
+            result[aggre_key] = float(result[aggre_key])
+        except Exception as e:
+            print(f"Error: {result[aggre_key]} is not a float")
+            result[aggre_key] = 0
         return result.sort_values(by='snapshot_datetime')
 
+    @timer
     def store_data(self) -> None:
         """Process and store all data to Redis"""
         try:
@@ -229,7 +257,7 @@ class RedisWriter(RedisBase):
             self.batch_data = {}
             
         for host in hosts:
-            top_commands = self._process_host_data(df, host, 'command')
+            top_commands = self._process_host_data(df, host, 'cpu', 'command')
             for _, row in top_commands.iterrows():
                 key = f"{row['snapshot_datetime'].isoformat()}"
                 host_data = self.batch_data.setdefault(key, {}).setdefault(host, {}).setdefault('cpu', {}).setdefault('command', {})
@@ -242,7 +270,7 @@ class RedisWriter(RedisBase):
             self.batch_data = {}
             
         for host in hosts:
-            user_data = self._process_host_data(df, host, 'user', threshold=2)
+            user_data = self._process_host_data(df, host, 'cpu', 'user', threshold=2)
             for _, row in user_data.iterrows():
                 key = f"{row['snapshot_datetime'].isoformat()}"
                 user_cpu_data = self.batch_data.setdefault(key, {}).setdefault(host, {}).setdefault('cpu', {}).setdefault('user', [])
@@ -259,15 +287,12 @@ class RedisWriter(RedisBase):
         if self.batch_data is None:
             self.batch_data = {}
             
-        df_grouped = df.groupby(['snapshot_datetime', 'host', 'comm', 'username'])[
-            'rss'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
         for host in hosts:
-            df_grouped = df_grouped[df_grouped['host'] == host]
-            for _, row in df_grouped.groupby(['snapshot_datetime', 'host']).agg({'rss': 'sum'}).reset_index().iterrows():
+            mem_data = self._process_host_data(df, host, 'mem', 'command')
+            for _, row in mem_data.iterrows():
                 key = f"{row['snapshot_datetime'].isoformat()}"
                 cmd_mem_data = self.batch_data.setdefault(key, {}).setdefault(host, {}).setdefault('mem', {}).setdefault('command', {})
                 cmd_mem_data['rss'] = float(row['rss'])
-                cmd_mem_data['host'] = row['host']
                 cmd_mem_data['timestamp'] = row['snapshot_datetime'].isoformat()
 
     def _get_memory_users_to_save(self, df: pd.DataFrame) -> None:
@@ -275,14 +300,9 @@ class RedisWriter(RedisBase):
         if self.batch_data is None:
             self.batch_data = {}
 
-        df_grouped = df.groupby(['snapshot_datetime', 'host', 'comm', 'username'])[
-            'rss'].sum().reset_index()  # Sum the norm diff by host and process at each sampling interval
         for host in hosts:
-            df_grouped = df_grouped[df_grouped['host'] == host]
-            df_max_0 = df_grouped.groupby(
-                ['snapshot_datetime', 'comm', 'host', 'username']).agg(
-                {'rss': 'sum'}).reset_index()
-            for _, row in df_max_0[df_max_0['rss'] > 2].iterrows():
+            user_data = self._process_host_data(df, host, 'mem', 'user', threshold=2)
+            for _, row in user_data.iterrows():
                 key = f"{row['snapshot_datetime'].isoformat()}"
                 user_mem_data = self.batch_data.setdefault(key, {}).setdefault(host, {}).setdefault('mem', {}).setdefault('user', [])
                 user_mem_data.append({

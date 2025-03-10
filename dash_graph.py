@@ -6,7 +6,7 @@ from flask import Flask
 from plotly.subplots import make_subplots
 import datetime
 import pandas as pd
-from redis_transformer import RedisReader
+from redis_transformer import RedisReader, timer
 server = None
 
 class DashGraph:
@@ -70,6 +70,7 @@ class DashGraph:
             end_datetime = datetime.datetime.strptime(end_date, '%Y-%m-%d') + datetime.timedelta(days=1)
             return self.create_graphs(start_datetime, end_datetime), {'display': 'block'}
 
+    @timer
     def create_graphs(self, start_date=None, end_date=None):
         if start_date is None:
             start_date = self.default_start_date
@@ -82,6 +83,7 @@ class DashGraph:
             self.unified_graph_one_server('tdobz', 96, 1000, start_date, end_date)
         ]
 
+    @timer
     def memory_hover_data(self, top_memory_command_df, graph_data):
         all_tuples = []
         top_memory_users = self._convert_to_df(graph_data, 'mem', 'user')
@@ -100,6 +102,7 @@ class DashGraph:
 
         return np.stack(all_tuples, axis=-1)
 
+    @timer
     def load_hover_data(self, top_load_command_df, graph_data):
         all_tuples = []
         top_load_users = self._convert_to_df(graph_data, 'cpu', 'user')
@@ -118,6 +121,7 @@ class DashGraph:
 
         return np.stack(all_tuples, axis=-1)
 
+    @timer
     def _convert_to_df(self, data_dict, data_type, data_key):
         df_dict = {}
         for key, value in data_dict.items():
@@ -127,17 +131,19 @@ class DashGraph:
             if type(entry_data) == dict:
                 entry_data = [entry_data]
             for entry in entry_data:
-                df_dict.setdefault('snapshot_datetime', []).append(datetime.datetime.fromtimestamp(key))
-                for entry_key, entry_value in entry.items():
-                    df_dict.setdefault(entry_key, []).append(entry_value)
+                if entry:
+                    df_dict.setdefault('snapshot_datetime', []).append(datetime.datetime.fromtimestamp(key))
+                    for entry_key, entry_value in entry.items():
+                        df_dict.setdefault(entry_key, []).append(entry_value)
         if 'snapshot_datetime' in df_dict:
             df_dict['snapshot_datetime'] = pd.to_datetime(df_dict['snapshot_datetime'])
         return pd.DataFrame(df_dict)
 
+    @timer
     def unified_graph_one_server(self, hostname, cpu_limit, mem_limit, start_date=None, end_date=None):
         graph_data = self.redis_reader.get_data(hostname, start_date, end_date)
-        top_memory_command_df = None #self._convert_to_df(graph_data, 'mem', 'command')
-        mem_hover_data = [] #self.memory_hover_data(top_memory_command_df, graph_data)
+        top_memory_command_df = self._convert_to_df(graph_data, 'mem', 'command')
+        mem_hover_data = self.memory_hover_data(top_memory_command_df, graph_data)
 
         top_load_command_df = self._convert_to_df(graph_data, 'cpu', 'command')
         load_hover_data = self.load_hover_data(top_load_command_df, graph_data)
