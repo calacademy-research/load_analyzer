@@ -29,7 +29,12 @@ RUN ln -sf /proc/self/fd/1 /var/log/apache2/access.log && \
 WORKDIR /var/www/apache-flask
 
 ENV PYTHONPATH "${PYTHONPATH}:/var/www/apache-flask:/usr/local/lib/python3.8/site-packages"
-ENV PORT 80
-EXPOSE 80
+ENV PORT 8090
+EXPOSE 8090
+
+# Copy the startup script
+COPY . /var/www/apache-flask/
+RUN chmod +x /var/www/apache-flask/docker_start.sh
+RUN pip install -r requirements.txt
 
 ENTRYPOINT ["/var/www/apache-flask/docker_start.sh"]

@@ -5,21 +5,16 @@ from dash import dcc, html, Input, Output, callback, State
 from flask import Flask
 from plotly.subplots import make_subplots
 import datetime
-
-from analyze import Analyze
-
+import pandas as pd
+from redis_transformer import RedisReader
 server = None
 
-
 class DashGraph:
-    df = None
     app = None
-    analyze = None
     server = None
 
-    def __init__(self, analyze):
-        self.analyze = analyze
-
+    def __init__(self):
+        self.redis_reader = RedisReader()
         if self.app is None:
             self.app_setup()
             print("App is set up.")
@@ -31,16 +26,16 @@ class DashGraph:
                             prevent_initial_callbacks=True,
                             server=self.server)
 
-        default_end_date = datetime.datetime.now()
-        default_start_date = default_end_date - datetime.timedelta(days=1)
+        self.default_end_date = datetime.datetime.now()
+        self.default_start_date = self.default_end_date - datetime.timedelta(days=1)
 
         self.app.layout = html.Div(
             children=[
                 html.Div([
                     dcc.DatePickerRange(
                         id='date-range',
-                        start_date=default_start_date.strftime('%Y-%m-%d'),
-                        end_date=default_end_date.strftime('%Y-%m-%d'),
+                        start_date=self.default_start_date.strftime('%Y-%m-%d'),
+                        end_date=self.default_end_date.strftime('%Y-%m-%d'),
                         display_format='YYYY-MM-DD',
                         minimum_nights=0
                     ),
@@ -71,37 +66,25 @@ class DashGraph:
             prevent_initial_call=False
         )
         def update_graphs(n_clicks, n_intervals, start_date, end_date):
-            analyzer.update_df(start_date, end_date)
-            return self.create_graphs(), {'display': 'block'}
+            start_datetime = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+            end_datetime = datetime.datetime.strptime(end_date, '%Y-%m-%d') + datetime.timedelta(days=1)
+            return self.create_graphs(start_datetime, end_datetime), {'display': 'block'}
 
-    def get_layout(self):
-        return html.Div(
-            children=[
-                dcc.Loading(
-                    id='loading',
-                    type='graph',
-                    fullscreen=True
-                ),
-                html.Div(id='graphs', children=self.create_graphs()),
-                dcc.Interval(
-                    id='interval-component',
-                    interval=120 * 1000,
-                    n_intervals=0,
-                )
-            ]
-        )
-
-    def create_graphs(self):
+    def create_graphs(self, start_date=None, end_date=None):
+        if start_date is None:
+            start_date = self.default_start_date
+        if end_date is None:
+            end_date = self.default_end_date
         return [
-            self.unified_graph_one_server('flor', 256, 1500),
-            self.unified_graph_one_server('rosalindf', 256, 2000),
-            self.unified_graph_one_server('alice', 192, 1000),
-            self.unified_graph_one_server('tdobz', 96, 1000)
+            self.unified_graph_one_server('flor', 256, 1500, start_date, end_date),
+            self.unified_graph_one_server('rosalindf', 256, 2000, start_date, end_date),
+            self.unified_graph_one_server('alice', 192, 1000, start_date, end_date),
+            self.unified_graph_one_server('tdobz', 96, 1000, start_date, end_date)
         ]
 
-    def memory_hover_data(self, top_memory_command_df, hostname):
+    def memory_hover_data(self, top_memory_command_df, graph_data):
         all_tuples = []
-        top_memory_users = self.analyze.top_memory_users(hostname)
+        top_memory_users = self._convert_to_df(graph_data, 'mem', 'user')
         if top_memory_users.empty:
             return []
         for index, row in top_memory_command_df.iterrows():
@@ -117,9 +100,9 @@ class DashGraph:
 
         return np.stack(all_tuples, axis=-1)
 
-    def load_hover_data(self, top_load_command_df, hostname):
+    def load_hover_data(self, top_load_command_df, graph_data):
         all_tuples = []
-        top_load_users = self.analyze.top_load_users(hostname)
+        top_load_users = self._convert_to_df(graph_data, 'cpu', 'user')
         if top_load_users.empty:
             return []
         for index, row in top_load_command_df.iterrows():
@@ -135,11 +118,29 @@ class DashGraph:
 
         return np.stack(all_tuples, axis=-1)
 
-    def unified_graph_one_server(self, hostname, cpu_limit, mem_limit):
-        top_memory_command_df = self.analyze.top_memory_commands(hostname)
-        mem_hover_data = self.memory_hover_data(top_memory_command_df, hostname)
-        top_load_command_df = self.analyze.top_load_commands(hostname)
-        load_hover_data = self.load_hover_data(top_load_command_df, hostname)
+    def _convert_to_df(self, data_dict, data_type, data_key):
+        df_dict = {}
+        for key, value in data_dict.items():
+            entry_data = value.get(data_type, {}).get(data_key, {})
+            if not entry_data:
+                return pd.DataFrame()
+            if type(entry_data) == dict:
+                entry_data = [entry_data]
+            for entry in entry_data:
+                df_dict.setdefault('snapshot_datetime', []).append(datetime.datetime.fromtimestamp(key))
+                for entry_key, entry_value in entry.items():
+                    df_dict.setdefault(entry_key, []).append(entry_value)
+        if 'snapshot_datetime' in df_dict:
+            df_dict['snapshot_datetime'] = pd.to_datetime(df_dict['snapshot_datetime'])
+        return pd.DataFrame(df_dict)
+
+    def unified_graph_one_server(self, hostname, cpu_limit, mem_limit, start_date=None, end_date=None):
+        graph_data = self.redis_reader.get_data(hostname, start_date, end_date)
+        top_memory_command_df = None #self._convert_to_df(graph_data, 'mem', 'command')
+        mem_hover_data = [] #self.memory_hover_data(top_memory_command_df, graph_data)
+
+        top_load_command_df = self._convert_to_df(graph_data, 'cpu', 'command')
+        load_hover_data = self.load_hover_data(top_load_command_df, graph_data)
         fig = make_subplots(specs=[[{"secondary_y": True}]])
 
         # Check if memory_hover_data is empty
@@ -189,12 +190,11 @@ class DashGraph:
 
         return dcc.Graph(id=f'unified-graph-{hostname}', figure=fig)
 
-analyzer = Analyze(use_tsv=False, use_pickle=False)
-graphs = DashGraph(analyzer)
+graphs = DashGraph()
 server = graphs.server
 if __name__ == '__main__':
     print("Running internal server...")
-    graphs.app.run_server(debug=True, host='127.0.0.1', use_reloader=False)
+    graphs.app.run_server(debug=True, host='127.0.0.1', port=8090, use_reloader=False)
 else:
     print(f"Running external server: {__name__}")
 

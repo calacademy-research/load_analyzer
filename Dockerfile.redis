@@ -1,0 +1,24 @@
+# Dockerfile References: https://docs.docker.com/engine/reference/builder/
+
+# Start from python:3.8-alpine base image
+FROM python:3
+ENV TZ="America/Los_Angeles"
+
+# Make dir app
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt ./
+COPY . /app
+
+RUN pip install -r requirements.txt
+# Install vim and redis for debugging
+RUN apt-get update && apt-get install -y vim redis
+
+
+# Expose port 8080 to the outside world
+#EXPOSE 8080
+
+# Run the executable
+CMD ["sleep", "1000000"]
+#CMD ["python", "/app/process_data_job.py"]

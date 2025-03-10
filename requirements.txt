@@ -78,6 +78,7 @@ pytz
 pyzmq
 qtconsole
 QtPy
+redis
 requests
 scipy
 seaborn
