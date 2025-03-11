@@ -83,43 +83,45 @@ class DashGraph:
             self.unified_graph_one_server('tdobz', 96, 1000, start_date, end_date)
         ]
 
+    def _create_hover_data(self, command_df, graph_data, data_type, value_field):
+        """Helper function to create hover data for both memory and CPU load
+        
+        Args:
+            command_df: DataFrame with command data
+            graph_data: Raw graph data
+            data_type: Type of data ('mem' or 'cpu')
+            value_field: Field to sort by ('rss' or 'cpu_norm')
+        """
+        users_df = self._convert_to_df(graph_data, data_type, 'user')
+        if users_df.empty:
+            return []
+
+        # Pre-sort the dataframe once
+        users_df = users_df.sort_values(['snapshot_datetime', value_field], ascending=[True, False])
+        
+        # Create a dictionary for faster lookups
+        grouped_users = dict(list(users_df.groupby('snapshot_datetime')))
+        
+        # Use list comprehension instead of loop with append
+        value_label = 'mem' if data_type == 'mem' else 'load'
+        unit = 'G' if data_type == 'mem' else ''
+        all_tuples = [
+            "".join(
+                f"<br>Host: {row['host']} username: {row['username']} {value_label}: {row[value_field]:.2f}{unit} command: {row['comm']}"
+                for _, row in grouped_users.get(timestamp, pd.DataFrame()).iterrows()
+            )
+            for timestamp in command_df['snapshot_datetime']
+        ]
+
+        return np.array(all_tuples)
+
     @timer
     def memory_hover_data(self, top_memory_command_df, graph_data):
-        all_tuples = []
-        top_memory_users = self._convert_to_df(graph_data, 'mem', 'user')
-        if top_memory_users.empty:
-            return []
-        for index, row in top_memory_command_df.iterrows():
-            entry = ''
-            cur_datetime = row['snapshot_datetime']
-            tops = top_memory_users[
-                top_memory_users['snapshot_datetime'] == cur_datetime].sort_values(
-                by='rss', ascending=False)
-            for sindex, srow in tops.iterrows():
-                entry += f"<br>Host: {srow['host']} username: {srow['username']} mem: {srow['rss']:.2f}G command: {srow['comm']}"
-
-            all_tuples.append(entry)
-
-        return np.stack(all_tuples, axis=-1)
+        return self._create_hover_data(top_memory_command_df, graph_data, 'mem', 'rss')
 
     @timer
     def load_hover_data(self, top_load_command_df, graph_data):
-        all_tuples = []
-        top_load_users = self._convert_to_df(graph_data, 'cpu', 'user')
-        if top_load_users.empty:
-            return []
-        for index, row in top_load_command_df.iterrows():
-            entry = ''
-            cur_datetime = row['snapshot_datetime']
-            tops = top_load_users[
-                top_load_users['snapshot_datetime'] == cur_datetime].sort_values(
-                by='cpu_norm', ascending=False)
-            for sindex, srow in tops.iterrows():
-                entry += f"<br>Host: {srow['host']} username: {srow['username']} load: {srow['cpu_norm']:.2f} command: {srow['comm']}"
-
-            all_tuples.append(entry)
-
-        return np.stack(all_tuples, axis=-1)
+        return self._create_hover_data(top_load_command_df, graph_data, 'cpu', 'cpu_norm')
 
     @timer
     def _convert_to_df(self, data_dict, data_type, data_key):
