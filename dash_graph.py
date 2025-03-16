@@ -7,6 +7,26 @@ from plotly.subplots import make_subplots
 import datetime
 import pandas as pd
 from redis_transformer import RedisReader, timer
+import logging
+import json
+import os
+
+# Create logs directory if it doesn't exist
+os.makedirs('/var/log/dash_app', exist_ok=True)
+
+# Set up logging configuration
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        # File handler
+        logging.FileHandler('/var/log/dash_app/dash_app.log'),
+        # Console handler
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 server = None
 
 class DashGraph:
@@ -25,6 +45,14 @@ class DashGraph:
                             title='Load analyzer',
                             prevent_initial_callbacks=True,
                             server=self.server)
+        
+        # Add debug configurations
+        self.app.enable_dev_tools(
+            debug=True,
+            dev_tools_hot_reload=True,
+            dev_tools_props_check=True,
+            dev_tools_serve_dev_bundles=True
+        )
 
         self.default_end_date = datetime.datetime.now()
         self.default_start_date = self.default_end_date - datetime.timedelta(days=1)
@@ -66,9 +94,18 @@ class DashGraph:
             prevent_initial_call=False
         )
         def update_graphs(n_clicks, n_intervals, start_date, end_date):
-            start_datetime = datetime.datetime.strptime(start_date, '%Y-%m-%d')
-            end_datetime = datetime.datetime.strptime(end_date, '%Y-%m-%d') + datetime.timedelta(days=1)
-            return self.create_graphs(start_datetime, end_datetime), {'display': 'block'}
+            logger.debug(f"Updating graphs: clicks={n_clicks}, intervals={n_intervals}")
+            logger.debug(f"Date range: {start_date} to {end_date}")
+            
+            try:
+                start_datetime = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+                end_datetime = datetime.datetime.strptime(end_date, '%Y-%m-%d') + datetime.timedelta(days=1)
+                graphs = self.create_graphs(start_datetime, end_datetime)
+                logger.debug(f"Created {len(graphs)} graphs")
+                return graphs, {'display': 'block'}
+            except Exception as e:
+                logger.error(f"Error updating graphs: {str(e)}", exc_info=True)
+                raise
 
     @timer
     def create_graphs(self, start_date=None, end_date=None):
@@ -125,73 +162,111 @@ class DashGraph:
 
     @timer
     def _convert_to_df(self, data_dict, data_type, data_key):
+        logger.debug(f"Converting data: type={data_type}, key={data_key}")
         df_dict = {}
-        for key, value in data_dict.items():
-            entry_data = value.get(data_type, {}).get(data_key, {})
-            if not entry_data:
-                return pd.DataFrame()
-            if type(entry_data) == dict:
-                entry_data = [entry_data]
-            for entry in entry_data:
-                if entry:
-                    df_dict.setdefault('snapshot_datetime', []).append(datetime.datetime.fromtimestamp(key))
-                    for entry_key, entry_value in entry.items():
-                        df_dict.setdefault(entry_key, []).append(entry_value)
-        if 'snapshot_datetime' in df_dict:
-            df_dict['snapshot_datetime'] = pd.to_datetime(df_dict['snapshot_datetime'])
-        return pd.DataFrame(df_dict)
+        try:
+            for key, value in data_dict.items():
+                entry_data = value.get(data_type, {}).get(data_key, {})
+                if not entry_data:
+                    logger.debug(f"No data found for {data_type}/{data_key}")
+                    continue
+                if type(entry_data) == dict:
+                    entry_data = [entry_data]
+                for entry in entry_data:
+                    if entry:
+                        df_dict.setdefault('snapshot_datetime', []).append(datetime.datetime.fromtimestamp(key))
+                        for entry_key, entry_value in entry.items():
+                            df_dict.setdefault(entry_key, []).append(entry_value)
+            
+            if 'snapshot_datetime' in df_dict:
+                logger.debug(f"Created DataFrame with {len(df_dict['snapshot_datetime'])} rows")
+            else:
+                logger.warning("No data points found for DataFrame creation")
+            
+            return pd.DataFrame(df_dict)
+        except Exception as e:
+            logger.error(f"Error converting data to DataFrame: {str(e)}", exc_info=True)
+            return pd.DataFrame()
 
     @timer
     def unified_graph_one_server(self, hostname, cpu_limit, mem_limit, start_date=None, end_date=None):
+        logger.debug(f"Fetching Redis data for {hostname} from {start_date} to {end_date}")
         graph_data = self.redis_reader.get_data(hostname, start_date, end_date)
+        
+        # Debug Redis data structure
+        if graph_data:
+            logger.debug(f"Redis data keys: {list(graph_data.keys())[:5]}...")
+            sample_entry = next(iter(graph_data.values()))
+            logger.debug(f"Sample data structure: {json.dumps(sample_entry, indent=2)}")
+        
         top_memory_command_df = self._convert_to_df(graph_data, 'mem', 'command')
+        logger.debug(f"Memory command data: {len(top_memory_command_df) if not top_memory_command_df.empty else 0} rows")
         mem_hover_data = self.memory_hover_data(top_memory_command_df, graph_data)
-
+        
         top_load_command_df = self._convert_to_df(graph_data, 'cpu', 'command')
+        logger.debug(f"CPU command data: {len(top_load_command_df) if not top_load_command_df.empty else 0} rows")
         load_hover_data = self.load_hover_data(top_load_command_df, graph_data)
+
         fig = make_subplots(specs=[[{"secondary_y": True}]])
+        
+        # Add debug checks for empty data
+        if len(mem_hover_data) == 0:
+            logger.warning(f"No memory data available for {hostname}")
+        if len(load_hover_data) == 0:
+            logger.warning(f"No CPU load data available for {hostname}")
 
-        # Check if memory_hover_data is empty
-        if len(mem_hover_data) > 0:
-            top_memory_command_df['hover_data'] = mem_hover_data
-            memory_trace = px.line(
-                top_memory_command_df,
-                x='snapshot_datetime',
-                y='rss',
-                custom_data=['hover_data'],
-                color_discrete_sequence=['red'],
-                labels={'snapshot_datetime': 'Time', 'rss': 'Total memory (GB)', 'comm': 'command'},
-                title=f"CPU and memory usage on {hostname}")
+        # Debug trace creation
+        try:
+            if len(mem_hover_data) > 0:
+                logger.debug(f"Creating memory trace for {hostname}")
+                top_memory_command_df['hover_data'] = mem_hover_data
+                memory_trace = px.line(
+                    top_memory_command_df,
+                    x='snapshot_datetime',
+                    y='rss',
+                    custom_data=['hover_data'],
+                    color_discrete_sequence=['red'],
+                    labels={'snapshot_datetime': 'Time', 'rss': 'Total memory (GB)', 'comm': 'command'},
+                    title=f"CPU and memory usage on {hostname}")
 
-            memory_trace.update_traces(
-                hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
-                               '<i>Total memory</i>: %{y:.2f}G' + \
-                               '<br>%{customdata[0]}'
-                               )
-            )
-            fig.add_trace(memory_trace.data[0], secondary_y=True)
+                memory_trace.update_traces(
+                    hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
+                                   '<i>Total memory</i>: %{y:.2f}G' + \
+                                   '<br>%{customdata[0]}'
+                                   ),
+                    yaxis='y2'  # Use secondary y-axis for memory
+                )
+                fig.add_trace(memory_trace.data[0], secondary_y=True)
+                logger.debug("Memory trace created successfully")
+            
+            if len(load_hover_data) > 0:
+                logger.debug(f"Creating CPU load trace for {hostname}")
+                top_load_command_df['hover_data'] = load_hover_data
+                load_trace = px.line(
+                    top_load_command_df,
+                    x='snapshot_datetime',
+                    y='cpu_norm',
+                    custom_data=['hover_data'],
+                    color_discrete_sequence=['blue'],
+                    labels={'snapshot_datetime': 'Time', 'cpu_norm': 'Total load', 'comm': 'command'},
+                    title=f"CPU and memory usage on {hostname}"
+                )
 
-        # Check if load_hover_data is empty
-        if len(load_hover_data) > 0:
-            top_load_command_df['hover_data'] = load_hover_data
-            load_trace = px.line(
-                top_load_command_df,
-                x='snapshot_datetime',
-                y='cpu_norm',
-                custom_data=['hover_data'],
-                color_discrete_sequence=['blue'],
-                labels={'snapshot_datetime': 'Time', 'cpu_norm': 'Total load', 'comm': 'command'},
-                title=f"CPU and memory usage on {hostname}"
-            )
+                load_trace.update_traces(
+                    hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
+                                   '<i>Total load</i>: %{y:.2f}' + \
+                                   '<br>%{customdata[0]}'),
+                    yaxis='y1'  # Use primary y-axis for CPU
+                )
+                fig.add_trace(load_trace.data[0], secondary_y=False)
+                logger.debug("CPU load trace created successfully")
+        except Exception as e:
+            logger.error(f"Error creating traces for {hostname}: {str(e)}", exc_info=True)
 
-            load_trace.update_traces(
-                hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
-                               '<i>Total load</i>: %{y:.2f}' + \
-                               '<br>%{customdata[0]}')
-            )
-            fig.add_trace(load_trace.data[0])
-
-        fig.update_yaxes(range=[0, mem_limit], secondary_y=True, title="Memory usage")
+        # Set memory y-axis to start at 20% of the limit
+        memory_start = mem_limit * 0.2
+        
+        fig.update_yaxes(range=[memory_start, mem_limit], secondary_y=True, title="Memory usage")
         fig.update_yaxes(range=[0, cpu_limit], secondary_y=False, title="CPU usage")
         fig.update_layout(title=f"CPU and memory usage on {hostname}")
         fig.update_layout(uirevision='preserve UI state during updates')
@@ -202,7 +277,7 @@ graphs = DashGraph()
 server = graphs.server
 if __name__ == '__main__':
     print("Running internal server...")
-    graphs.app.run_server(debug=True, host='127.0.0.1', port=8090, use_reloader=False)
+    graphs.app.run_server(debug=True, host='127.0.0.1', port=9092, use_reloader=False)
 else:
     print(f"Running external server: {__name__}")
 
