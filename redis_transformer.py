@@ -224,11 +224,8 @@ class RedisWriter(RedisBase):
                 {aggre_key: 'sum'}).reset_index()
             if threshold is not None:
                 result = result[result[aggre_key] > threshold]
-        try:
-            result[aggre_key] = float(result[aggre_key])
-        except Exception as e:
-            print(f"Error: {result[aggre_key]} is not a float")
-            result[aggre_key] = 0
+        # fill na with 0
+        result[aggre_key] = result[aggre_key].fillna(0.0)
         return result.sort_values(by='snapshot_datetime')
 
     @timer
