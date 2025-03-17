@@ -220,20 +220,23 @@ class DashGraph:
             if len(mem_hover_data) > 0:
                 logger.debug(f"Creating memory trace for {hostname}")
                 top_memory_command_df['hover_data'] = mem_hover_data
+                # Slightly elevate memory values to avoid exact overlap
+                top_memory_command_df['inflated_rss'] = top_memory_command_df['rss'] + 100.0
                 memory_trace = px.line(
                     top_memory_command_df,
                     x='snapshot_datetime',
-                    y='rss',
-                    custom_data=['hover_data'],
+                    y='inflated_rss',
+                    custom_data=['hover_data', 'rss'],
                     color_discrete_sequence=['red'],
                     labels={'snapshot_datetime': 'Time', 'rss': 'Total memory (GB)', 'comm': 'command'},
                     title=f"CPU and memory usage on {hostname}")
-
                 memory_trace.update_traces(
                     hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
-                                   '<i>Total memory</i>: %{y:.2f}G' + \
+                                   '<i>Total memory</i>: %{customdata[1]:.2f}G' + \
                                    '<br>%{customdata[0]}'
                                    ),
+                    line=dict(width=3),
+                    opacity=0.7,
                     yaxis='y2'  # Use secondary y-axis for memory
                 )
                 fig.add_trace(memory_trace.data[0], secondary_y=True)
@@ -256,6 +259,8 @@ class DashGraph:
                     hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
                                    '<i>Total load</i>: %{y:.2f}' + \
                                    '<br>%{customdata[0]}'),
+                    line=dict(width=2),
+                    opacity=1,
                     yaxis='y1'  # Use primary y-axis for CPU
                 )
                 fig.add_trace(load_trace.data[0], secondary_y=False)
@@ -263,10 +268,7 @@ class DashGraph:
         except Exception as e:
             logger.error(f"Error creating traces for {hostname}: {str(e)}", exc_info=True)
 
-        # Set memory y-axis to start at 20% of the limit
-        memory_start = mem_limit * 0.2
-        
-        fig.update_yaxes(range=[memory_start, mem_limit], secondary_y=True, title="Memory usage")
+        fig.update_yaxes(range=[0, mem_limit], secondary_y=True, title="Memory usage")
         fig.update_yaxes(range=[0, cpu_limit], secondary_y=False, title="CPU usage")
         fig.update_layout(title=f"CPU and memory usage on {hostname}")
         fig.update_layout(uirevision='preserve UI state during updates')

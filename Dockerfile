@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y apache2 \
     python3-numpy \
     python3-pandas \
     vim \
+    cron \
  && apt-get clean \
  && apt-get autoremove \
  && cd /usr/local/bin \
