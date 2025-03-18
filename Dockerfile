@@ -30,8 +30,8 @@ RUN ln -sf /proc/self/fd/1 /var/log/apache2/access.log && \
 WORKDIR /var/www/apache-flask
 
 ENV PYTHONPATH "${PYTHONPATH}:/var/www/apache-flask:/usr/local/lib/python3.8/site-packages"
-ENV PORT 9092
-EXPOSE 9092
+ENV PORT 80
+EXPOSE 80
 
 # Copy the startup script
 COPY . /var/www/apache-flask/
