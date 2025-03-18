@@ -279,7 +279,7 @@ graphs = DashGraph()
 server = graphs.server
 if __name__ == '__main__':
     print("Running internal server...")
-    graphs.app.run_server(debug=True, host='127.0.0.1', port=9092, use_reloader=False)
+    graphs.app.run_server(debug=True, host='127.0.0.1', port=80, use_reloader=False)
 else:
     print(f"Running external server: {__name__}")
 
