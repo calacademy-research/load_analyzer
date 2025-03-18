@@ -33,7 +33,7 @@ ENV PYTHONPATH "${PYTHONPATH}:/var/www/apache-flask:/usr/local/lib/python3.8/sit
 ENV PORT 80
 EXPOSE 80
 
-# Copy the startup script
+# Copy the application code
 COPY . /var/www/apache-flask/
 RUN chmod +x /var/www/apache-flask/docker_start.sh
 RUN pip install -r requirements.txt
