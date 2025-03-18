@@ -220,19 +220,17 @@ class DashGraph:
             if len(mem_hover_data) > 0:
                 logger.debug(f"Creating memory trace for {hostname}")
                 top_memory_command_df['hover_data'] = mem_hover_data
-                # Slightly elevate memory values to avoid exact overlap
-                top_memory_command_df['inflated_rss'] = top_memory_command_df['rss'] + 100.0
                 memory_trace = px.line(
                     top_memory_command_df,
                     x='snapshot_datetime',
-                    y='inflated_rss',
-                    custom_data=['hover_data', 'rss'],
+                    y='rss',
+                    custom_data=['hover_data'],
                     color_discrete_sequence=['red'],
                     labels={'snapshot_datetime': 'Time', 'rss': 'Total memory (GB)', 'comm': 'command'},
                     title=f"CPU and memory usage on {hostname}")
                 memory_trace.update_traces(
                     hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
-                                   '<i>Total memory</i>: %{customdata[1]:.2f}G' + \
+                                   '<i>Total memory</i>: %{y:.2f}G' + \
                                    '<br>%{customdata[0]}'
                                    ),
                     line=dict(width=3),
