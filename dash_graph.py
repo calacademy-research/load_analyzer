@@ -277,10 +277,13 @@ class DashGraph:
 
 graphs = DashGraph()
 server = graphs.server
+
 if __name__ == '__main__':
     print("Running internal server...")
-    graphs.app.run_server(debug=True, host='127.0.0.1', port=80, use_reloader=False)
+    # When running directly for development, use port 8050
+    graphs.app.run(debug=True, host='0.0.0.0', port=80, use_reloader=False)
 else:
-    print(f"Running external server: {__name__}")
+    # When running through Apache/WSGI, just expose the server
+    print(f"Running through WSGI: {__name__}")
 
 print("exiting.")

@@ -13,9 +13,6 @@ chmod 666 /var/log/cron.log
 # Start cron service
 service cron start
 
-# Start Apache
-service apache2 start
-
 # Start our application
 python3 /var/www/apache-flask/dash_graph.py &
 
