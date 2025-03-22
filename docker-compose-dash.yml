@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  # Dash App Service
+  dash-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    network_mode: "host"
+    volumes:
+      - .:/var/www/apache-flask
+      - ./logs:/var/log/dash_app
+    depends_on:
+      - redis
+    extra_hosts:
+      - "alice:10.1.10.183"
+      - "rosalindf:10.1.10.182"
+      - "tdobz:10.1.10.205"
+      - "flor:10.1.10.176"
+    environment:
+      - REDIS_HOST=localhost
+      # mysql is depended by the monitoring service, whichs is running from different host
+      # so it will be launched out of this docker compose file
+      - MYSQL_HOST=localhost
+      - MYSQL_PORT=3312
+
+  # Redis Service
+  redis:
+    image: redis:latest
+    restart: always
+    network_mode: "host"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+
+volumes:
+  redis-data: 
