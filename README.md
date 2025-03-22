@@ -1,6 +1,7 @@
 # load_analyzer
 
 A realtime visualization of memory and CPU load for CAS servers:
+- flor
 - rosalindf
 - alice
 - tdobz
@@ -10,7 +11,7 @@ A realtime visualization of memory and CPU load for CAS servers:
 
 This is run in two pieces:
 1. The monitoring and database side is run on `ibss-central` using `docker-compose` and `docker`.
-2. The dash based web url is run on `ibss-central` and reset via crontab on that machine.
+2. The dash based web url is run on `ibss-crontab`.
 
 To start the monitoring process, run as user `admin`, which has the keys set up correctly.
 Execute 
@@ -23,6 +24,14 @@ To start the dash graphs based portion execute
 ```bash
 run.sh
 ```
+
+To start the dash based website, login to `ibss-crontab`
+Execute
+```bash
+docker compose -f docker-compose-dash.yml up -d
+```
+
+this will launch both the dashboard web app and redis server
 
 ## Debugging:
 A `processts.tsv` file has been provided for test data.
