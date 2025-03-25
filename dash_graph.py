@@ -54,42 +54,66 @@ class DashGraph:
             dev_tools_serve_dev_bundles=True
         )
 
-        self.app.layout = html.Div(
-            children=[
-                html.Div([
-                    dcc.DatePickerRange(
-                        id='date-range',
-                        start_date=None,
-                        end_date=None,
-                        display_format='YYYY-MM-DD',
-                        minimum_nights=0
-                    ),
-                    html.Button('Update', id='submit-button', n_clicks=0, style={'margin-left': '10px'}),
-                ], style={'margin': '10px'}),
-                dcc.Loading(
-                    id='loading',
-                    type='circle',
-                    fullscreen=True,
-                    color='#119DFF',
+        self.app.layout = html.Div([
+            dcc.Location(id='url', refresh=False),
+            html.Div([
+                dcc.DatePickerRange(
+                    id='date-range',
+                    start_date=None,
+                    end_date=None,
+                    display_format='YYYY-MM-DD',
+                    minimum_nights=0
                 ),
-                html.Div(id='graphs', children=self.create_graphs()),
-                dcc.Interval(
-                    id='interval-component',
-                    interval=120 * 1000,
-                    n_intervals=0,
-                )
-            ]
-        )
+                html.Button('Update', id='submit-button', n_clicks=0, style={'margin-left': '10px'}),
+            ], style={'margin': '10px'}),
+            dcc.Loading(
+                id='loading',
+                type='circle',
+                fullscreen=True,
+                color='#119DFF',
+            ),
+            html.Div(id='graphs', children=self.create_graphs()),
+            dcc.Interval(
+                id='interval-component',
+                interval=120 * 1000,
+                n_intervals=0,
+            )
+        ])
 
         @self.app.callback(
             [Output('date-range', 'start_date'),
              Output('date-range', 'end_date')],
-            [Input('interval-component', 'n_intervals')]
+            [Input('url', 'search')],
+            prevent_initial_call=False
         )
-        def update_date_range(n):
+        def initialize_dates(search):
+            # 如果URL中有日期参数
+            if search:
+                try:
+                    from urllib.parse import parse_qs
+                    params = parse_qs(search.lstrip('?'))
+                    start = params.get('start', [None])[0]
+                    end = params.get('end', [None])[0]
+                    if start and end:
+                        return start, end
+                except:
+                    pass
+            
+            # 如果没有URL参数，使用默认日期
             end_date = datetime.datetime.now()
             start_date = end_date - datetime.timedelta(days=1)
             return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
+
+        @self.app.callback(
+            Output('url', 'search'),
+            [Input('submit-button', 'n_clicks')],
+            [State('date-range', 'start_date'),
+             State('date-range', 'end_date')]
+        )
+        def update_url(n_clicks, start_date, end_date):
+            if start_date and end_date:
+                return f'?start={start_date}&end={end_date}'
+            return ''
 
         @self.app.callback(
             [Output('graphs', 'children'),
