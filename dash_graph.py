@@ -105,8 +105,14 @@ class DashGraph:
             logger.debug(f"Date range: {start_date} to {end_date}")
             
             try:
-                start_datetime = datetime.datetime.strptime(start_date, '%Y-%m-%d')
-                end_datetime = datetime.datetime.strptime(end_date, '%Y-%m-%d') + datetime.timedelta(days=1)
+                if start_date is None:
+                    start_datetime = datetime.datetime.now() - datetime.timedelta(days=1)
+                else:
+                    start_datetime = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+                if end_date is None:
+                    end_datetime = datetime.datetime.now() + datetime.timedelta(days=1)
+                else:
+                    end_datetime = datetime.datetime.strptime(end_date, '%Y-%m-%d')
                 graphs = self.create_graphs(start_datetime, end_datetime)
                 logger.debug(f"Created {len(graphs)} graphs")
                 return graphs, {'display': 'block'}
