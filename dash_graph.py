@@ -54,16 +54,13 @@ class DashGraph:
             dev_tools_serve_dev_bundles=True
         )
 
-        self.default_end_date = datetime.datetime.now()
-        self.default_start_date = self.default_end_date - datetime.timedelta(days=1)
-
         self.app.layout = html.Div(
             children=[
                 html.Div([
                     dcc.DatePickerRange(
                         id='date-range',
-                        start_date=self.default_start_date.strftime('%Y-%m-%d'),
-                        end_date=self.default_end_date.strftime('%Y-%m-%d'),
+                        start_date=None,
+                        end_date=None,
                         display_format='YYYY-MM-DD',
                         minimum_nights=0
                     ),
@@ -83,6 +80,16 @@ class DashGraph:
                 )
             ]
         )
+
+        @self.app.callback(
+            [Output('date-range', 'start_date'),
+             Output('date-range', 'end_date')],
+            [Input('interval-component', 'n_intervals')]
+        )
+        def update_date_range(n):
+            end_date = datetime.datetime.now()
+            start_date = end_date - datetime.timedelta(days=1)
+            return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
 
         @self.app.callback(
             [Output('graphs', 'children'),
@@ -110,9 +117,9 @@ class DashGraph:
     @timer
     def create_graphs(self, start_date=None, end_date=None):
         if start_date is None:
-            start_date = self.default_start_date
+            start_date = datetime.datetime.now() - datetime.timedelta(days=1)
         if end_date is None:
-            end_date = self.default_end_date
+            end_date = datetime.datetime.now()
         return [
             self.unified_graph_one_server('flor', 256, 1500, start_date, end_date),
             self.unified_graph_one_server('rosalindf', 256, 2000, start_date, end_date),
