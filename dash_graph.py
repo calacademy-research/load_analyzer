@@ -10,6 +10,7 @@ from redis_transformer import RedisReader, timer
 import logging
 import json
 import os
+from zoneinfo import ZoneInfo
 
 # Create logs directory if it doesn't exist
 os.makedirs('/var/log/dash_app', exist_ok=True)
@@ -87,7 +88,6 @@ class DashGraph:
             prevent_initial_call=False
         )
         def initialize_dates(search):
-            # 如果URL中有日期参数
             if search:
                 try:
                     from urllib.parse import parse_qs
@@ -99,8 +99,7 @@ class DashGraph:
                 except:
                     pass
             
-            # 如果没有URL参数，使用默认日期
-            end_date = datetime.datetime.now()
+            end_date = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles'))
             start_date = end_date - datetime.timedelta(days=1)
             return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
 
