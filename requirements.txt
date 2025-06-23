@@ -99,3 +99,4 @@ Werkzeug
 widgetsnbextension
 yarg
 zipp
+mysql-connector-python==8.4.0

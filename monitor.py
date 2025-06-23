@@ -1,12 +1,43 @@
 #!/usr/bin/env python3
+import mysql.connector
 import db_utils
 import subprocess
 import sys
 import time
 import os
-db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '10.1.10.123', 'load')
-# db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
 
+class DbUtils:
+    def __init__(self, user, password, port, host, database):
+        self.conn = mysql.connector.connect(
+            user=user,
+            password=password,
+            host=host,
+            port=port,
+            database=database,
+            autocommit=True,
+        )
+
+    def get_cursor(self):
+        return self.conn.cursor()
+
+    def execute(self, query, params=None):
+        cur = self.conn.cursor()
+        cur.execute(query, params)
+        cur.close()
+
+    def commit(self):
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+db = DbUtils(
+    'root',
+    'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf',
+    3312,
+    '10.1.10.123',
+    'load',
+)
 
 HOSTS = ['rosalindf', 'alice', 'tdobz', 'flor']
 ps_arg_tuples = [
