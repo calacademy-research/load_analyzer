@@ -36,6 +36,7 @@ EXPOSE 80
 # Copy the application code
 COPY . /var/www/apache-flask/
 RUN chmod +x /var/www/apache-flask/docker_start.sh
-RUN pip install -r requirements.txt
+RUN pip install uv
+RUN uv pip install --system -r requirements.txt
 
 ENTRYPOINT ["/var/www/apache-flask/docker_start.sh"]
