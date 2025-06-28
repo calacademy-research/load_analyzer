@@ -9,10 +9,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from collections import OrderedDict
 import time
 from functools import wraps
-
 from sqlalchemy import create_engine
 from app.config import DB_CONFIG
-
+from zoneinfo import ZoneInfo
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -50,6 +49,7 @@ class RedisBase:
             socket_connect_timeout=5,
             retry_on_timeout=True
         )
+
     @timer
     def read_sql(self, start_date=None, end_date=None):
         print(f"start_date: {start_date}")
@@ -104,6 +104,9 @@ class RedisReader(RedisBase):
             for key in keys:
                 try:
                     key_time = datetime.fromisoformat(key)
+                    key_time = key_time.astimezone(ZoneInfo('UTC'))
+                    start_time = start_time.astimezone(ZoneInfo('America/Los_Angeles'))
+                    end_time = end_time.astimezone(ZoneInfo('America/Los_Angeles'))
                     if start_time and key_time < start_time:
                         continue
                     if end_time and key_time > end_time:
@@ -114,8 +117,12 @@ class RedisReader(RedisBase):
                         data_dict = json.loads(data)
                         if host:
                             if host in data_dict:
+                                dt_utc = datetime.fromisoformat(key)
+                                if dt_utc.tzinfo is None:
+                                    dt_utc = dt_utc.replace(tzinfo=ZoneInfo("UTC"))
+                                dt_dst = dt_utc.astimezone(ZoneInfo("America/Los_Angeles"))
                                 # Convert ISO timestamp to epoch timestamp
-                                timestamp = int(datetime.fromisoformat(key).timestamp())
+                                timestamp = int(dt_dst.timestamp())
                                 results[timestamp] = data_dict[host]
                         else:
                             continue

@@ -39,8 +39,6 @@ class DashGraph:
         if self.app is None:
             self.app_setup()
             print("App is set up.")
-        # set the default timezone to PDT
-        self.timezone = ZoneInfo('America/Los_Angeles')
 
     def app_setup(self):
         self.server = Flask(__name__)
@@ -100,9 +98,11 @@ class DashGraph:
                         return start, end
                 except:
                     pass
-            
-            end_date = datetime.datetime.now(tz=self.timezone)
+
+            end_date = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles'))
+            end_date = end_date.replace(tzinfo=datetime.timezone.utc)
             start_date = end_date - datetime.timedelta(days=1)
+            logger.info(f"start_date: {start_date}, end_date: {end_date}")
             return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
 
         @self.app.callback(
@@ -131,15 +131,17 @@ class DashGraph:
             
             try:
                 if start_date is None:
-                    start_datetime = datetime.datetime.now(tz=self.timezone) - datetime.timedelta(days=1)
+                    start_datetime = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) - datetime.timedelta(days=1)
                 else:
                     start_datetime = datetime.datetime.strptime(start_date, '%Y-%m-%d')
                 if end_date is None:
-                    end_datetime = datetime.datetime.now(tz=self.timezone)
+                    end_datetime = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) + datetime.timedelta(days=1)
                 else:
                     end_datetime = datetime.datetime.strptime(end_date, '%Y-%m-%d')
                 # include the end date in the query
                 end_datetime += datetime.timedelta(days=1)
+                end_datetime = end_datetime.replace(tzinfo=datetime.timezone.utc)
+                start_datetime = start_datetime.replace(tzinfo=datetime.timezone.utc)
                 graphs = self.create_graphs(start_datetime, end_datetime)
                 logger.debug(f"Created {len(graphs)} graphs")
                 return graphs, {'display': 'block'}
@@ -150,9 +152,11 @@ class DashGraph:
     @timer
     def create_graphs(self, start_date=None, end_date=None):
         if start_date is None:
-            start_date = datetime.datetime.now(tz=self.timezone) - datetime.timedelta(days=1)
+            start_date = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) - datetime.timedelta(days=1)
+            start_date = start_date.replace(tzinfo=datetime.timezone.utc)
         if end_date is None:
-            end_date = datetime.datetime.now(tz=self.timezone) + datetime.timedelta(days=1)
+            end_date = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) + datetime.timedelta(days=1)
+            end_date = end_date.replace(tzinfo=datetime.timezone.utc)
         return [
             self.unified_graph_one_server('flor', 256, 1500, start_date, end_date),
             self.unified_graph_one_server('rosalindf', 256, 2000, start_date, end_date),
