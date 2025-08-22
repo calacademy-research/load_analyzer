@@ -22,7 +22,7 @@ services:
       - REDIS_HOST=localhost
       # mysql is depended by the monitoring service, whichs is running from different host
       # so it will be launched out of this docker compose file
-      - MYSQL_HOST=localhost
+      - MYSQL_HOST=ibss-central
       - MYSQL_PORT=3312
 
   # Redis Service
