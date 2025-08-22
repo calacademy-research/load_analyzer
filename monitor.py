@@ -35,7 +35,7 @@ db = DbUtils(
     'root',
     'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf',
     3312,
-    '10.1.10.123',
+    '10.4.90.123',
     'load',
 )
 
@@ -121,7 +121,7 @@ sql = """create table if not exists processes (
         thcount int not null,
         etimes int not null,
         bdstart varchar(100),
-        args varchar(20000) not null,
+        args TEXT not null,
         snapshot_time_epoch int not null,
         snapshot_datetime datetime not null,
         host varchar(20))
