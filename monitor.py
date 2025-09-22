@@ -5,6 +5,11 @@ import subprocess
 import sys
 import time
 import os
+<<<<<<< HEAD
+=======
+db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '10.4.90.123', 'load')
+# db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
+>>>>>>> f05806e (ip changes)
 
 class DbUtils:
     def __init__(self, user, password, port, host, database):

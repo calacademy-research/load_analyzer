@@ -19,8 +19,8 @@ services:
       - mysql:mysql
     extra_hosts:
      - "alice:10.1.10.183"
-     - "rosalindf:10.1.10.182"
-     - "tdobz:10.1.10.205"
+     - "rosalindf:10.4.90.182"
+     - "tdobz:10.4.90.205"
      - "flor:10.1.10.176"
     networks:
       - python
