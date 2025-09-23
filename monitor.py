@@ -5,11 +5,6 @@ import subprocess
 import sys
 import time
 import os
-<<<<<<< HEAD
-=======
-db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, '10.4.90.123', 'load')
-# db = db_utils.DbUtils('root', 'qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf', 3312, 'mysql', 'load')
->>>>>>> f05806e (ip changes)
 
 class DbUtils:
     def __init__(self, user, password, port, host, database):
@@ -140,10 +135,12 @@ while True:
     datetime_time = time.strftime('%Y-%m-%d %H:%M:%S')
     for host in HOSTS:
         print(f"Checking host {host}", flush=True)
-        ssh = subprocess.Popen(["ssh", "-o", "StrictHostKeyChecking=no", f"admin@{host}", COMMAND],
+        ssh = subprocess.Popen(["ssh", "-i", "/root/.ssh/id_rsa_ps_load", "-o", "StrictHostKeyChecking=no", f"admin@{host}", COMMAND],
                                shell=False,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
+        cmd = ["ssh", "-i", "/root/.ssh/id_rsa_ps_load", "-o", "StrictHostKeyChecking=no", f"admin@{host}", COMMAND]
+        print(f"command: {' '.join(cmd)}")
         result = ssh.stdout.readlines()
         if result == []:
             error = ssh.stderr.readlines()
