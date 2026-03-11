@@ -18,7 +18,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-hosts = ['flor', 'rosalindf', 'alice', 'tdobz']
+hosts = ['flor', 'rosalindf', 'alice', 'tdobz', 'ibss-spark-1']
+gpu_hosts = ['alice', 'ibss-spark-1']
 
 def timer(func):
     @wraps(func)
@@ -34,16 +35,10 @@ def timer(func):
 class RedisBase:
     """Base class for Redis operations with common initialization"""
     def __init__(self, host='localhost', port=6379, db=0):
-        """
-        Initialize Redis connection
-        :param host: Redis host
-        :param port: Redis port
-        :param db: Redis database number
-        """
         self.redis_client = redis.Redis(
-            host=host, 
-            port=port, 
-            db=db, 
+            host=host,
+            port=port,
+            db=db,
             decode_responses=True,
             socket_timeout=5,
             socket_connect_timeout=5,
@@ -74,34 +69,51 @@ class RedisBase:
         print("db read complete.")
         return df
 
+    @timer
+    def read_gpu_sql(self, start_date=None, end_date=None):
+        if start_date is None:
+            start_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+        if end_date is None:
+            end_date = (datetime.now()).strftime('%Y-%m-%d %H:%M:%S')
+
+        db_connection = create_engine(url="mysql+pymysql://{0}:{1}@{2}:{3}/{4}".format(
+            DB_CONFIG['user'],
+            DB_CONFIG['password'],
+            DB_CONFIG['host'],
+            DB_CONFIG['port'],
+            DB_CONFIG['database']
+        ))
+        sql_string = f"SELECT * FROM gpu_stats WHERE snapshot_datetime BETWEEN '{start_date}' AND '{end_date}'"
+        print(f"Reading GPU data: {sql_string}")
+        try:
+            df = pd.read_sql(sql_string, con=db_connection)
+            print(f"GPU db read complete: {len(df)} rows")
+            return df
+        except Exception as e:
+            logger.warning(f"GPU table read failed (may not exist yet): {e}")
+            return pd.DataFrame()
+
 
 class RedisReader(RedisBase):
     """Class for reading data from Redis"""
-    
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
         retry=retry_if_exception_type(redis.RedisError)
     )
     @timer
-    def get_data(self, host: Optional[str] = None, 
-                 start_time: Optional[datetime] = None, 
+    def get_data(self, host: Optional[str] = None,
+                 start_time: Optional[datetime] = None,
                  end_time: Optional[datetime] = None,
                  sort_by_time: bool = True) -> List[Dict]:
-        """
-        Get data by time range
-        :param data_type: Data type ('cpu' or 'mem')
-        :param host: Optional host name filter
-        :param start_time: Start time
-        :param end_time: End time
-        :param sort_by_time: Sort by time
-        :return: List of data dictionaries
-        """
         results = OrderedDict()
-    
+
         try:
             keys = self.redis_client.keys("*")
             for key in keys:
+                if key.startswith("gpu:"):
+                    continue
                 try:
                     key_time = datetime.fromisoformat(key)
                     key_time = key_time.astimezone(ZoneInfo('UTC'))
@@ -121,14 +133,13 @@ class RedisReader(RedisBase):
                                 if dt_utc.tzinfo is None:
                                     dt_utc = dt_utc.replace(tzinfo=ZoneInfo("UTC"))
                                 dt_dst = dt_utc.astimezone(ZoneInfo("America/Los_Angeles"))
-                                # Convert ISO timestamp to epoch timestamp
                                 timestamp = int(dt_dst.timestamp())
                                 results[timestamp] = data_dict[host]
                         else:
                             continue
                 except ValueError:
                     continue
-                    
+
         except Exception as e:
             logger.error(f"Failed to get data: {str(e)}")
             raise
@@ -136,10 +147,52 @@ class RedisReader(RedisBase):
             results = OrderedDict(sorted(results.items(), key=lambda x: x[0]))
         return results
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type(redis.RedisError)
+    )
+    @timer
+    def get_gpu_data(self, host: Optional[str] = None,
+                     start_time: Optional[datetime] = None,
+                     end_time: Optional[datetime] = None) -> List[Dict]:
+        """Get GPU data from Redis"""
+        results = OrderedDict()
+        try:
+            keys = [k for k in self.redis_client.keys("gpu:*")]
+            for key in keys:
+                try:
+                    key_time_str = key.replace("gpu:", "")
+                    key_time = datetime.fromisoformat(key_time_str)
+                    key_time = key_time.astimezone(ZoneInfo('UTC'))
+                    st = start_time.astimezone(ZoneInfo('America/Los_Angeles'))
+                    et = end_time.astimezone(ZoneInfo('America/Los_Angeles'))
+                    if st and key_time < st:
+                        continue
+                    if et and key_time > et:
+                        continue
+
+                    data = self.redis_client.get(key)
+                    if data:
+                        data_dict = json.loads(data)
+                        if host and host in data_dict:
+                            dt_utc = datetime.fromisoformat(key_time_str)
+                            if dt_utc.tzinfo is None:
+                                dt_utc = dt_utc.replace(tzinfo=ZoneInfo("UTC"))
+                            dt_dst = dt_utc.astimezone(ZoneInfo("America/Los_Angeles"))
+                            timestamp = int(dt_dst.timestamp())
+                            results[timestamp] = data_dict[host]
+                except ValueError:
+                    continue
+        except Exception as e:
+            logger.error(f"Failed to get GPU data: {str(e)}")
+            raise
+        return OrderedDict(sorted(results.items(), key=lambda x: x[0]))
+
 
 class RedisWriter(RedisBase):
     """Class for writing data to Redis"""
-    
+
     def __init__(self, host='localhost', port=6379, db=0):
         super().__init__(host, port, db)
         self.batch_data = {}
@@ -166,7 +219,7 @@ class RedisWriter(RedisBase):
             pipeline.reset()
             raise
 
-    def _get_sql_data(self, start_time: Optional[datetime] = None, 
+    def _get_sql_data(self, start_time: Optional[datetime] = None,
                       end_time: Optional[datetime] = None) -> List[Dict]:
         """Get data from SQL database"""
         if start_time is None:
@@ -188,7 +241,7 @@ class RedisWriter(RedisBase):
         df['rss'] = (df['rss'] / 1000000).round(2)
         df['vsz'] = (df['vsz'] / 1000000).round(2)
         df['cpu_diff'] = (df['cputimes'] - df.groupby(['host', 'pid'])['cputimes'].shift()).fillna(0)
-        df['seconds_diff'] = (df['snapshot_time_epoch'] - 
+        df['seconds_diff'] = (df['snapshot_time_epoch'] -
                             df.groupby(['host', 'pid'])['snapshot_time_epoch'].shift()).fillna(0)
         df['cpu_norm'] = (df['cpu_diff'].div(df['seconds_diff'])).fillna(0)
         df = df[df['cpu_norm'] != 0]
@@ -211,7 +264,7 @@ class RedisWriter(RedisBase):
         reduced.drop(['cpu_diff', 'seconds_diff'], axis=1, inplace=True)
         return reduced
 
-    def _process_host_data(self, df: pd.DataFrame, host: str, category: str, data_type: str, 
+    def _process_host_data(self, df: pd.DataFrame, host: str, category: str, data_type: str,
                           threshold: float = None) -> pd.DataFrame:
         """Process data for a specific host"""
         if category == 'cpu':
@@ -222,7 +275,7 @@ class RedisWriter(RedisBase):
             aggre_key].sum().reset_index()
         df_grouped = df_grouped[df_grouped[aggre_key] != 0]
         df_grouped = df_grouped[df_grouped['host'] == host]
-        
+
         if data_type == 'command':
             result = df_grouped.groupby(['snapshot_datetime']).agg(
                 {aggre_key: 'sum'}).reset_index()
@@ -241,16 +294,17 @@ class RedisWriter(RedisBase):
         try:
             logger.info("Starting data processing and storage...")
             processed_data = self._data_wrangling()
-            
+
             self.batch_data = {}
             self._get_cpu_load_commands_to_save(processed_data)
             self._get_cpu_load_users_to_save(processed_data)
             self._get_memory_commands_to_save(processed_data)
             self._get_memory_users_to_save(processed_data)
-            
+            self._get_gpu_data_to_save()
+
             self._batch_write()
             logger.info("Data storage completed")
-            
+
         except Exception as e:
             logger.error(f"Error occurred during data storage: {str(e)}")
             raise
@@ -259,7 +313,7 @@ class RedisWriter(RedisBase):
         """store the CPU load data"""
         if self.batch_data is None:
             self.batch_data = {}
-            
+
         for host in hosts:
             top_commands = self._process_host_data(df, host, 'cpu', 'command')
             for _, row in top_commands.iterrows():
@@ -272,7 +326,7 @@ class RedisWriter(RedisBase):
         """store the user CPU load data"""
         if self.batch_data is None:
             self.batch_data = {}
-            
+
         for host in hosts:
             user_data = self._process_host_data(df, host, 'cpu', 'user', threshold=2)
             for _, row in user_data.iterrows():
@@ -290,7 +344,7 @@ class RedisWriter(RedisBase):
         """store the memory data"""
         if self.batch_data is None:
             self.batch_data = {}
-            
+
         for host in hosts:
             mem_data = self._process_host_data(df, host, 'mem', 'command')
             for _, row in mem_data.iterrows():
@@ -316,3 +370,53 @@ class RedisWriter(RedisBase):
                     'host': row['host'],
                     'timestamp': row['snapshot_datetime'].isoformat()
                 })
+
+    @timer
+    def _get_gpu_data_to_save(self) -> None:
+        """Read GPU stats from MySQL and store in Redis with gpu: prefix"""
+        try:
+            gpu_df = self.read_gpu_sql()
+            if gpu_df.empty:
+                logger.info("No GPU data found")
+                return
+
+            # Aggregate by 5-minute intervals per host, averaging across GPUs
+            gpu_df['snapshot_datetime'] = pd.to_datetime(gpu_df['snapshot_datetime'])
+
+            # Extract gpu_processes before aggregation (take first non-null per host/interval)
+            if 'gpu_processes' not in gpu_df.columns:
+                gpu_df['gpu_processes'] = None
+            procs_df = gpu_df.dropna(subset=['gpu_processes']).groupby([
+                pd.Grouper(key='snapshot_datetime', freq='5min'),
+                'host'
+            ])['gpu_processes'].first().reset_index()
+            procs_lookup = {}
+            for _, prow in procs_df.iterrows():
+                procs_lookup[(prow['snapshot_datetime'], prow['host'])] = prow['gpu_processes']
+
+            grouped = gpu_df.groupby([
+                pd.Grouper(key='snapshot_datetime', freq='5min'),
+                'host'
+            ]).agg({
+                'utilization_pct': 'mean',
+                'memory_used_mb': 'sum',
+                'memory_total_mb': 'sum',
+                'gpu_index': 'nunique'
+            }).reset_index()
+            grouped.rename(columns={'gpu_index': 'gpu_count'}, inplace=True)
+
+            for _, row in grouped.iterrows():
+                key = f"gpu:{row['snapshot_datetime'].isoformat()}"
+                host = row['host']
+                gpu_data = self.batch_data.setdefault(key, {}).setdefault(host, {})
+                gpu_data['utilization_pct'] = float(row['utilization_pct']) if pd.notna(row['utilization_pct']) else 0.0
+                gpu_data['memory_used_mb'] = float(row['memory_used_mb']) if pd.notna(row['memory_used_mb']) else 0.0
+                gpu_data['memory_total_mb'] = float(row['memory_total_mb']) if pd.notna(row['memory_total_mb']) else 0.0
+                gpu_data['gpu_count'] = int(row['gpu_count'])
+                gpu_data['timestamp'] = row['snapshot_datetime'].isoformat()
+                gpu_procs = procs_lookup.get((row['snapshot_datetime'], host), '')
+                gpu_data['gpu_processes'] = gpu_procs if gpu_procs else ''
+
+            logger.info(f"Processed {len(grouped)} GPU data points")
+        except Exception as e:
+            logger.error(f"GPU data processing failed: {e}")

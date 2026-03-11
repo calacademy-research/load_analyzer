@@ -4,6 +4,7 @@ import plotly.express as px
 from dash import dcc, html, Input, Output, callback, State
 from flask import Flask
 from plotly.subplots import make_subplots
+import plotly.graph_objects as go
 import datetime
 import pandas as pd
 from redis_transformer import RedisReader, timer
@@ -30,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 server = None
 
+GPU_HOSTS = ['alice', 'ibss-spark-1']
+
 class DashGraph:
     app = None
     server = None
@@ -46,7 +49,7 @@ class DashGraph:
                             title='Load analyzer',
                             prevent_initial_callbacks=True,
                             server=self.server)
-        
+
         # Add debug configurations
         self.app.enable_dev_tools(
             debug=True,
@@ -70,10 +73,11 @@ class DashGraph:
             dcc.Loading(
                 id='loading',
                 type='circle',
-                fullscreen=True,
                 color='#119DFF',
+                children=[
+                    html.Div(id='graphs', children=self.create_graphs()),
+                ],
             ),
-            html.Div(id='graphs', children=self.create_graphs()),
             dcc.Interval(
                 id='interval-component',
                 interval=120 * 1000,
@@ -117,8 +121,7 @@ class DashGraph:
             return ''
 
         @self.app.callback(
-            [Output('graphs', 'children'),
-             Output('loading', 'parent_style')],
+            Output('graphs', 'children'),
             [Input('submit-button', 'n_clicks'),
              Input('interval-component', 'n_intervals')],
             [State('date-range', 'start_date'),
@@ -128,7 +131,7 @@ class DashGraph:
         def update_graphs(n_clicks, n_intervals, start_date, end_date):
             logger.debug(f"Updating graphs: clicks={n_clicks}, intervals={n_intervals}")
             logger.debug(f"Date range: {start_date} to {end_date}")
-            
+
             try:
                 if start_date is None:
                     start_datetime = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) - datetime.timedelta(days=1)
@@ -144,7 +147,7 @@ class DashGraph:
                 start_datetime = start_datetime.replace(tzinfo=datetime.timezone.utc)
                 graphs = self.create_graphs(start_datetime, end_datetime)
                 logger.debug(f"Created {len(graphs)} graphs")
-                return graphs, {'display': 'block'}
+                return graphs
             except Exception as e:
                 logger.error(f"Error updating graphs: {str(e)}", exc_info=True)
                 raise
@@ -161,28 +164,22 @@ class DashGraph:
             self.unified_graph_one_server('flor', 256, 1500, start_date, end_date),
             self.unified_graph_one_server('rosalindf', 256, 2000, start_date, end_date),
             self.unified_graph_one_server('alice', 192, 1000, start_date, end_date),
-            self.unified_graph_one_server('tdobz', 96, 1000, start_date, end_date)
+            self.unified_graph_one_server('tdobz', 96, 1000, start_date, end_date),
+            self.unified_graph_one_server('ibss-spark-1', 20, 121, start_date, end_date)
         ]
 
     def _create_hover_data(self, command_df, graph_data, data_type, value_field):
-        """Helper function to create hover data for both memory and CPU load
-        
-        Args:
-            command_df: DataFrame with command data
-            graph_data: Raw graph data
-            data_type: Type of data ('mem' or 'cpu')
-            value_field: Field to sort by ('rss' or 'cpu_norm')
-        """
+        """Helper function to create hover data for both memory and CPU load"""
         users_df = self._convert_to_df(graph_data, data_type, 'user')
         if users_df.empty:
             return []
 
         # Pre-sort the dataframe once
         users_df = users_df.sort_values(['snapshot_datetime', value_field], ascending=[True, False])
-        
+
         # Create a dictionary for faster lookups
         grouped_users = dict(list(users_df.groupby('snapshot_datetime')))
-        
+
         # Use list comprehension instead of loop with append
         value_label = 'mem' if data_type == 'mem' else 'load'
         unit = 'G' if data_type == 'mem' else ''
@@ -221,38 +218,61 @@ class DashGraph:
                         df_dict.setdefault('snapshot_datetime', []).append(datetime.datetime.fromtimestamp(key))
                         for entry_key, entry_value in entry.items():
                             df_dict.setdefault(entry_key, []).append(entry_value)
-            
+
             if 'snapshot_datetime' in df_dict:
                 logger.debug(f"Created DataFrame with {len(df_dict['snapshot_datetime'])} rows")
             else:
                 logger.warning("No data points found for DataFrame creation")
-            
+
             return pd.DataFrame(df_dict)
         except Exception as e:
             logger.error(f"Error converting data to DataFrame: {str(e)}", exc_info=True)
             return pd.DataFrame()
 
     @timer
+    def _get_gpu_df(self, hostname, start_date, end_date):
+        """Get GPU data as a DataFrame for a given host"""
+        try:
+            gpu_data = self.redis_reader.get_gpu_data(hostname, start_date, end_date)
+            if not gpu_data:
+                return pd.DataFrame()
+
+            rows = []
+            for timestamp, data in gpu_data.items():
+                rows.append({
+                    'snapshot_datetime': datetime.datetime.fromtimestamp(timestamp),
+                    'utilization_pct': data.get('utilization_pct', 0),
+                    'memory_used_mb': data.get('memory_used_mb', 0),
+                    'memory_total_mb': data.get('memory_total_mb', 0),
+                    'gpu_count': data.get('gpu_count', 0),
+                    'gpu_processes': data.get('gpu_processes', ''),
+                })
+            return pd.DataFrame(rows)
+        except Exception as e:
+            logger.error(f"Error getting GPU data for {hostname}: {e}")
+            return pd.DataFrame()
+
+    @timer
     def unified_graph_one_server(self, hostname, cpu_limit, mem_limit, start_date=None, end_date=None):
         logger.debug(f"Fetching Redis data for {hostname} from {start_date} to {end_date}")
         graph_data = self.redis_reader.get_data(hostname, start_date, end_date)
-        
+
         # Debug Redis data structure
         if graph_data:
             logger.debug(f"Redis data keys: {list(graph_data.keys())[:5]}...")
             sample_entry = next(iter(graph_data.values()))
             logger.debug(f"Sample data structure: {json.dumps(sample_entry, indent=2)}")
-        
+
         top_memory_command_df = self._convert_to_df(graph_data, 'mem', 'command')
         logger.debug(f"Memory command data: {len(top_memory_command_df) if not top_memory_command_df.empty else 0} rows")
         mem_hover_data = self.memory_hover_data(top_memory_command_df, graph_data)
-        
+
         top_load_command_df = self._convert_to_df(graph_data, 'cpu', 'command')
         logger.debug(f"CPU command data: {len(top_load_command_df) if not top_load_command_df.empty else 0} rows")
         load_hover_data = self.load_hover_data(top_load_command_df, graph_data)
 
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        
+
         # Add debug checks for empty data
         if len(mem_hover_data) == 0:
             logger.warning(f"No memory data available for {hostname}")
@@ -283,7 +303,7 @@ class DashGraph:
                 )
                 fig.add_trace(memory_trace.data[0], secondary_y=True)
                 logger.debug("Memory trace created successfully")
-            
+
             if len(load_hover_data) > 0:
                 logger.debug(f"Creating CPU load trace for {hostname}")
                 top_load_command_df['hover_data'] = load_hover_data
@@ -307,6 +327,44 @@ class DashGraph:
                 )
                 fig.add_trace(load_trace.data[0], secondary_y=False)
                 logger.debug("CPU load trace created successfully")
+
+            # Add GPU utilization trace (green) for GPU-equipped hosts
+            if hostname in GPU_HOSTS:
+                gpu_df = self._get_gpu_df(hostname, start_date, end_date)
+                if not gpu_df.empty:
+                    logger.debug(f"Creating GPU trace for {hostname}: {len(gpu_df)} points")
+                    gpu_count = gpu_df['gpu_count'].max()
+                    # Scale GPU % (0-100) to CPU axis range (0-cpu_limit)
+                    gpu_scaled = gpu_df['utilization_pct'] * cpu_limit / 100.0
+                    # Build customdata as list of lists to support mixed types (numeric + string)
+                    custom = list(zip(
+                        gpu_df['memory_used_mb'].values,
+                        gpu_df['memory_total_mb'].values,
+                        gpu_df['gpu_count'].values,
+                        gpu_df['utilization_pct'].values,
+                        gpu_df['gpu_processes'].fillna('').values,
+                    ))
+                    gpu_trace = go.Scatter(
+                        x=gpu_df['snapshot_datetime'],
+                        y=gpu_scaled,
+                        mode='lines',
+                        name='GPU utilization %',showlegend=False,
+                        line=dict(color='green', width=2),
+                        opacity=0.9,
+                        hovertemplate=(
+                            '<br><b>Time:</b> %{x}<br>'
+                            '<i>GPU utilization</i>: %{customdata[3]:.1f}%'
+                            '<br>Memory: %{customdata[0]:.0f} / %{customdata[1]:.0f} MB'
+                            '<br>GPUs: %{customdata[2]}'
+                            '<br>%{customdata[4]}'
+                        ),
+                        customdata=custom,
+                    )
+                    fig.add_trace(gpu_trace, secondary_y=False)
+                    logger.debug("GPU trace created successfully")
+                else:
+                    logger.debug(f"No GPU data available for {hostname}")
+
         except Exception as e:
             logger.error(f"Error creating traces for {hostname}: {str(e)}", exc_info=True)
 

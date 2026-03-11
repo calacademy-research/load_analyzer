@@ -6,4 +6,3 @@ from dash_graph import server as application
 
 
 # app = __init__.flask
-

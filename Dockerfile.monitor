@@ -1,6 +1,4 @@
-# Dockerfile References: https://docs.docker.com/engine/reference/builder/
-
-# Start from python:3.8-alpine base image
+# Start from python:3 base image
 FROM python:3
 ENV TZ="America/Los_Angeles"
 
@@ -11,12 +9,6 @@ WORKDIR /app
 COPY requirements.txt ./
 
 RUN pip install -r requirements.txt
-
-
-
-
-# Expose port 8080 to the outside world
-#EXPOSE 8080
 
 # Run the executable
 CMD ["python", "monitor.py"]

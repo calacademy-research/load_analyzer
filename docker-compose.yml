@@ -18,10 +18,11 @@ services:
     links:
       - mysql:mysql
     extra_hosts:
-     - "alice:10.1.10.183"
+     - "alice:10.4.90.183"
      - "rosalindf:10.4.90.182"
      - "tdobz:10.4.90.205"
-     - "flor:10.1.10.176"
+     - "flor:10.4.90.176"
+     - "ibss-spark-1:10.4.90.200"
     networks:
       - python
 
@@ -29,15 +30,12 @@ services:
 #
   mysql:
     restart: always
-#    image: mysql:8
     image: mysql:8.4.0
     container_name: mysql
     command: "--mysql-native-password=ON"
-#    command: "--default-authentication-plugin=mysql_native_password"
 
     volumes:
       - ./data:/var/lib/mysql:delegated
-#      - ./MonarchBackup2022-01-12.sql:/docker-entrypoint-initdb.d/MonarchBackup2022-01-12.sql
 
     environment:
       MYSQL_ROOT_PASSWORD: qhALiqwRFNlOzwqnbXgGbKpgCZXUiSZvmAsRLlFIIMqjSQrf
@@ -53,6 +51,3 @@ services:
 networks:
   python:
     driver: bridge
-
-
-
