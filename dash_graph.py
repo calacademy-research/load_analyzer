@@ -1,7 +1,7 @@
 import dash
 import numpy as np
 import plotly.express as px
-from dash import dcc, html, Input, Output, callback, State
+from dash import dcc, html, Input, Output, callback, State, dash_table
 from flask import Flask
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
@@ -32,6 +32,17 @@ logger = logging.getLogger(__name__)
 server = None
 
 GPU_HOSTS = ['alice', 'ibss-spark-1']
+
+SERVERS = [
+    ('flor', 256, 1500),
+    ('rosalindf', 256, 2000),
+    ('alice', 192, 1000),
+    ('tdobz', 96, 1000),
+    ('ibss-spark-1', 20, 121),
+]
+
+# Color palette for per-user stacked area charts
+USER_COLORS = px.colors.qualitative.Plotly + px.colors.qualitative.Set2 + px.colors.qualitative.Pastel
 
 class DashGraph:
     app = None
@@ -70,14 +81,27 @@ class DashGraph:
                 ),
                 html.Button('Update', id='submit-button', n_clicks=0, style={'margin-left': '10px'}),
             ], style={'margin': '10px'}),
-            dcc.Loading(
-                id='loading',
-                type='circle',
-                color='#119DFF',
-                children=[
-                    html.Div(id='graphs', children=self.create_graphs()),
-                ],
-            ),
+            dcc.Tabs(id='tabs', value='overview', children=[
+                dcc.Tab(label='Overview', value='overview', children=[
+                    dcc.Loading(
+                        id='loading-overview',
+                        type='circle',
+                        color='#119DFF',
+                        children=[html.Div(id='graphs', children=self.create_graphs())],
+                    ),
+                ]),
+                dcc.Tab(label='Per-User Breakdown', value='per-user', children=[
+                    dcc.Loading(
+                        id='loading-per-user',
+                        type='circle',
+                        color='#119DFF',
+                        children=[
+                            html.Div(id='top-consumers-table'),
+                            html.Div(id='user-graphs'),
+                        ],
+                    ),
+                ]),
+            ]),
             dcc.Interval(
                 id='interval-component',
                 interval=120 * 1000,
@@ -152,6 +176,35 @@ class DashGraph:
                 logger.error(f"Error updating graphs: {str(e)}", exc_info=True)
                 raise
 
+        @self.app.callback(
+            [Output('user-graphs', 'children'),
+             Output('top-consumers-table', 'children')],
+            [Input('submit-button', 'n_clicks'),
+             Input('interval-component', 'n_intervals')],
+            [State('date-range', 'start_date'),
+             State('date-range', 'end_date')],
+            prevent_initial_call=False
+        )
+        def update_user_graphs(n_clicks, n_intervals, start_date, end_date):
+            try:
+                if start_date is None:
+                    start_datetime = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) - datetime.timedelta(days=1)
+                else:
+                    start_datetime = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+                if end_date is None:
+                    end_datetime = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) + datetime.timedelta(days=1)
+                else:
+                    end_datetime = datetime.datetime.strptime(end_date, '%Y-%m-%d')
+                end_datetime += datetime.timedelta(days=1)
+                end_datetime = end_datetime.replace(tzinfo=datetime.timezone.utc)
+                start_datetime = start_datetime.replace(tzinfo=datetime.timezone.utc)
+                user_graphs, all_user_data = self.create_user_graphs(start_datetime, end_datetime)
+                table = self.create_top_consumers_table(all_user_data)
+                return user_graphs, table
+            except Exception as e:
+                logger.error(f"Error updating user graphs: {str(e)}", exc_info=True)
+                raise
+
     @timer
     def create_graphs(self, start_date=None, end_date=None):
         if start_date is None:
@@ -161,11 +214,8 @@ class DashGraph:
             end_date = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) + datetime.timedelta(days=1)
             end_date = end_date.replace(tzinfo=datetime.timezone.utc)
         return [
-            self.unified_graph_one_server('flor', 256, 1500, start_date, end_date),
-            self.unified_graph_one_server('rosalindf', 256, 2000, start_date, end_date),
-            self.unified_graph_one_server('alice', 192, 1000, start_date, end_date),
-            self.unified_graph_one_server('tdobz', 96, 1000, start_date, end_date),
-            self.unified_graph_one_server('ibss-spark-1', 20, 121, start_date, end_date)
+            self.unified_graph_one_server(host, cpu, mem, start_date, end_date)
+            for host, cpu, mem in SERVERS
         ]
 
     def _create_hover_data(self, command_df, graph_data, data_type, value_field):
@@ -253,6 +303,161 @@ class DashGraph:
             return pd.DataFrame()
 
     @timer
+    def create_user_graphs(self, start_date=None, end_date=None):
+        if start_date is None:
+            start_date = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) - datetime.timedelta(days=1)
+            start_date = start_date.replace(tzinfo=datetime.timezone.utc)
+        if end_date is None:
+            end_date = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) + datetime.timedelta(days=1)
+            end_date = end_date.replace(tzinfo=datetime.timezone.utc)
+
+        graphs = []
+        all_user_data = []  # collect for the top consumers table
+
+        for hostname, cpu_limit, mem_limit in SERVERS:
+            graph_data = self.redis_reader.get_data(hostname, start_date, end_date)
+            if not graph_data:
+                continue
+
+            cpu_user_df = self._convert_to_df(graph_data, 'cpu', 'user')
+            mem_user_df = self._convert_to_df(graph_data, 'mem', 'user')
+
+            # Collect for top consumers table
+            if not cpu_user_df.empty:
+                all_user_data.append(('cpu', hostname, cpu_user_df))
+            if not mem_user_df.empty:
+                all_user_data.append(('mem', hostname, mem_user_df))
+
+            fig = make_subplots(rows=1, cols=2,
+                                subplot_titles=[f'{hostname} — CPU by user', f'{hostname} — Memory by user'],
+                                horizontal_spacing=0.08)
+
+            # CPU stacked area (left)
+            if not cpu_user_df.empty:
+                cpu_by_user = cpu_user_df.groupby(['snapshot_datetime', 'username'])['cpu_norm'].sum().reset_index()
+                users = cpu_by_user.groupby('username')['cpu_norm'].sum().sort_values(ascending=False)
+                # Top 10 users, rest as "other"
+                top_users = list(users.index[:10])
+                if len(users) > 10:
+                    cpu_by_user.loc[~cpu_by_user['username'].isin(top_users), 'username'] = 'other'
+                    cpu_by_user = cpu_by_user.groupby(['snapshot_datetime', 'username'])['cpu_norm'].sum().reset_index()
+                    top_users.append('other')
+
+                for i, user in enumerate(top_users):
+                    user_data = cpu_by_user[cpu_by_user['username'] == user].sort_values('snapshot_datetime')
+                    fig.add_trace(go.Scatter(
+                        x=user_data['snapshot_datetime'],
+                        y=user_data['cpu_norm'],
+                        mode='lines',
+                        name=user,
+                        stackgroup='cpu',
+                        line=dict(color=USER_COLORS[i % len(USER_COLORS)], width=0),
+                        fillcolor=USER_COLORS[i % len(USER_COLORS)],
+                        hovertemplate=f'<b>{user}</b><br>CPU: %{{y:.1f}}<br>%{{x}}<extra></extra>',
+                    ), row=1, col=1)
+
+            # Memory stacked area (right)
+            if not mem_user_df.empty:
+                mem_by_user = mem_user_df.groupby(['snapshot_datetime', 'username'])['rss'].sum().reset_index()
+                users = mem_by_user.groupby('username')['rss'].sum().sort_values(ascending=False)
+                top_users = list(users.index[:10])
+                if len(users) > 10:
+                    mem_by_user.loc[~mem_by_user['username'].isin(top_users), 'username'] = 'other'
+                    mem_by_user = mem_by_user.groupby(['snapshot_datetime', 'username'])['rss'].sum().reset_index()
+                    top_users.append('other')
+
+                for i, user in enumerate(top_users):
+                    user_data = mem_by_user[mem_by_user['username'] == user].sort_values('snapshot_datetime')
+                    fig.add_trace(go.Scatter(
+                        x=user_data['snapshot_datetime'],
+                        y=user_data['rss'],
+                        mode='lines',
+                        name=user,
+                        stackgroup='mem',
+                        showlegend=False,
+                        line=dict(color=USER_COLORS[i % len(USER_COLORS)], width=0),
+                        fillcolor=USER_COLORS[i % len(USER_COLORS)],
+                        hovertemplate=f'<b>{user}</b><br>Memory: %{{y:.1f}}G<br>%{{x}}<extra></extra>',
+                    ), row=1, col=2)
+
+            fig.update_yaxes(title_text='CPU load', range=[0, cpu_limit], row=1, col=1)
+            fig.update_yaxes(title_text='Memory (GB)', range=[0, mem_limit], row=1, col=2)
+            fig.update_layout(height=400, uirevision='preserve UI state during updates')
+
+            graphs.append(dcc.Graph(id=f'user-graph-{hostname}', figure=fig))
+
+        return graphs, all_user_data
+
+    @timer
+    def create_top_consumers_table(self, all_user_data):
+        if not all_user_data:
+            return html.P("No user data available for the selected period.")
+
+        rows = []
+        for data_type, hostname, df in all_user_data:
+            if data_type == 'cpu':
+                by_user = df.groupby('username').agg(
+                    avg_load=('cpu_norm', 'mean'),
+                    peak_load=('cpu_norm', 'max'),
+                    samples=('cpu_norm', 'count'),
+                ).reset_index()
+                for _, row in by_user.iterrows():
+                    rows.append({
+                        'Server': hostname,
+                        'User': row['username'],
+                        'Avg CPU Load': round(row['avg_load'], 1),
+                        'Peak CPU Load': round(row['peak_load'], 1),
+                        'Avg Memory (GB)': '',
+                        'Peak Memory (GB)': '',
+                    })
+            elif data_type == 'mem':
+                by_user = df.groupby('username').agg(
+                    avg_mem=('rss', 'mean'),
+                    peak_mem=('rss', 'max'),
+                ).reset_index()
+                for _, row in by_user.iterrows():
+                    # Find existing row for this user/server and merge
+                    existing = [r for r in rows if r['Server'] == hostname and r['User'] == row['username']]
+                    if existing:
+                        existing[0]['Avg Memory (GB)'] = round(row['avg_mem'], 1)
+                        existing[0]['Peak Memory (GB)'] = round(row['peak_mem'], 1)
+                    else:
+                        rows.append({
+                            'Server': hostname,
+                            'User': row['username'],
+                            'Avg CPU Load': '',
+                            'Peak CPU Load': '',
+                            'Avg Memory (GB)': round(row['avg_mem'], 1),
+                            'Peak Memory (GB)': round(row['peak_mem'], 1),
+                        })
+
+        if not rows:
+            return html.P("No user data available for the selected period.")
+
+        table_df = pd.DataFrame(rows)
+        # Sort by peak CPU load descending (treat empty as 0)
+        table_df['_sort'] = pd.to_numeric(table_df['Peak CPU Load'], errors='coerce').fillna(0)
+        table_df = table_df.sort_values('_sort', ascending=False).drop('_sort', axis=1)
+
+        return html.Div([
+            html.H3("Top Consumers", style={'margin': '10px'}),
+            dash_table.DataTable(
+                id='consumers-datatable',
+                columns=[{'name': c, 'id': c} for c in table_df.columns],
+                data=table_df.to_dict('records'),
+                sort_action='native',
+                filter_action='native',
+                page_size=20,
+                style_table={'overflowX': 'auto', 'margin': '10px'},
+                style_cell={'textAlign': 'left', 'padding': '8px'},
+                style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
+                style_data_conditional=[
+                    {'if': {'row_index': 'odd'}, 'backgroundColor': '#fafafa'},
+                ],
+            ),
+        ])
+
+    @timer
     def unified_graph_one_server(self, hostname, cpu_limit, mem_limit, start_date=None, end_date=None):
         logger.debug(f"Fetching Redis data for {hostname} from {start_date} to {end_date}")
         graph_data = self.redis_reader.get_data(hostname, start_date, end_date)
@@ -281,22 +486,32 @@ class DashGraph:
 
         # Debug trace creation
         try:
-            if len(mem_hover_data) > 0:
+            if not top_memory_command_df.empty:
                 logger.debug(f"Creating memory trace for {hostname}")
-                top_memory_command_df['hover_data'] = mem_hover_data
+                # Cap RSS at mem_limit so the line stays visible on the chart
+                top_memory_command_df = top_memory_command_df.copy()
+                top_memory_command_df['rss_display'] = top_memory_command_df['rss'].clip(upper=mem_limit)
+                if len(mem_hover_data) > 0:
+                    top_memory_command_df['hover_data'] = mem_hover_data
+                    custom_data_cols = ['hover_data', 'rss']
+                    hover_tpl = ('<br><b>Time:</b>: %{x}<br>'
+                                 '<i>Total memory</i>: %{customdata[1]:.2f}G'
+                                 '<br>%{customdata[0]}')
+                else:
+                    top_memory_command_df['hover_data'] = ''
+                    custom_data_cols = ['hover_data', 'rss']
+                    hover_tpl = ('<br><b>Time:</b>: %{x}<br>'
+                                 '<i>Total memory</i>: %{customdata[1]:.2f}G')
                 memory_trace = px.line(
                     top_memory_command_df,
                     x='snapshot_datetime',
-                    y='rss',
-                    custom_data=['hover_data'],
+                    y='rss_display',
+                    custom_data=custom_data_cols,
                     color_discrete_sequence=['red'],
-                    labels={'snapshot_datetime': 'Time', 'rss': 'Total memory (GB)', 'comm': 'command'},
+                    labels={'snapshot_datetime': 'Time', 'rss_display': 'Total memory (GB)', 'comm': 'command'},
                     title=f"CPU and memory usage on {hostname}")
                 memory_trace.update_traces(
-                    hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
-                                   '<i>Total memory</i>: %{y:.2f}G' + \
-                                   '<br>%{customdata[0]}'
-                                   ),
+                    hovertemplate=hover_tpl,
                     line=dict(width=3),
                     opacity=0.7,
                     yaxis='y2'  # Use secondary y-axis for memory
@@ -304,23 +519,32 @@ class DashGraph:
                 fig.add_trace(memory_trace.data[0], secondary_y=True)
                 logger.debug("Memory trace created successfully")
 
-            if len(load_hover_data) > 0:
+            if not top_load_command_df.empty:
                 logger.debug(f"Creating CPU load trace for {hostname}")
-                top_load_command_df['hover_data'] = load_hover_data
+                top_load_command_df = top_load_command_df.copy()
+                if len(load_hover_data) > 0:
+                    top_load_command_df['hover_data'] = load_hover_data
+                    custom_data_cols = ['hover_data']
+                    hover_tpl = ('<br><b>Time:</b>: %{x}<br>'
+                                 '<i>Total load</i>: %{y:.2f}'
+                                 '<br>%{customdata[0]}')
+                else:
+                    top_load_command_df['hover_data'] = ''
+                    custom_data_cols = ['hover_data']
+                    hover_tpl = ('<br><b>Time:</b>: %{x}<br>'
+                                 '<i>Total load</i>: %{y:.2f}')
                 load_trace = px.line(
                     top_load_command_df,
                     x='snapshot_datetime',
                     y='cpu_norm',
-                    custom_data=['hover_data'],
+                    custom_data=custom_data_cols,
                     color_discrete_sequence=['blue'],
                     labels={'snapshot_datetime': 'Time', 'cpu_norm': 'Total load', 'comm': 'command'},
                     title=f"CPU and memory usage on {hostname}"
                 )
 
                 load_trace.update_traces(
-                    hovertemplate=('<br><b>Time:</b>: %{x}<br>' + \
-                                   '<i>Total load</i>: %{y:.2f}' + \
-                                   '<br>%{customdata[0]}'),
+                    hovertemplate=hover_tpl,
                     line=dict(width=2),
                     opacity=1,
                     yaxis='y1'  # Use primary y-axis for CPU

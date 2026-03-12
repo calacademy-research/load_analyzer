@@ -127,3 +127,7 @@ dmypy.json
 
 # MySQL data
 data/
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/

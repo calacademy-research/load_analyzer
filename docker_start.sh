@@ -6,15 +6,15 @@ echo "*/5 * * * * cd /var/www/apache-flask && /usr/local/bin/python3 /var/www/ap
 chmod 0644 /etc/cron.d/process-data-cron
 crontab /etc/cron.d/process-data-cron
 
-# Create log file for cron
+# Create log files
 touch /var/log/cron.log
 chmod 666 /var/log/cron.log
 
 # Start cron service
 service cron start
 
-# Start our application
-python3 /var/www/apache-flask/dash_graph.py &
+# Start React+FastAPI dashboard on port 80
+python3 -m uvicorn api_server:app --host 0.0.0.0 --port 80 &
 
 # Keep container running and monitor logs
-tail -f /var/log/apache2/access.log /var/log/cron.log
+tail -f /var/log/cron.log
