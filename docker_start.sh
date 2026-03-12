@@ -2,7 +2,7 @@
 set -e
 
 # Create cron job to run process_data_job.py every 5 minutes
-echo "*/5 * * * * cd /var/www/apache-flask && /usr/local/bin/python3 /var/www/apache-flask/process_data_job.py >> /var/log/cron.log 2>&1" > /etc/cron.d/process-data-cron
+echo "*/5 * * * * cd /app && /usr/local/bin/python3 /app/process_data_job.py >> /var/log/cron.log 2>&1" > /etc/cron.d/process-data-cron
 chmod 0644 /etc/cron.d/process-data-cron
 crontab /etc/cron.d/process-data-cron
 

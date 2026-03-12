@@ -6,6 +6,7 @@ export function useServerData(endpoint, startDate, endDate) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
+  const debounceRef = useRef(null);
 
   const fetchData = useCallback(async () => {
     if (abortRef.current) abortRef.current.abort();
@@ -32,10 +33,29 @@ export function useServerData(endpoint, startDate, endDate) {
     }
   }, [endpoint, startDate, endDate]);
 
+  // Track previous params to detect real changes vs polling
+  const prevParamsRef = useRef({ endpoint, startDate, endDate });
+
   useEffect(() => {
-    fetchData();
+    const prev = prevParamsRef.current;
+    const paramsChanged = prev.endpoint !== endpoint || prev.startDate !== startDate || prev.endDate !== endDate;
+    prevParamsRef.current = { endpoint, startDate, endDate };
+
+    // Show loading immediately when dates change (before debounce)
+    if (paramsChanged) {
+      setLoading(true);
+    }
+
+    // Debounce fetches by 500ms so slider drags don't flood the server
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetchData();
+    }, paramsChanged ? 500 : 0);
+
+    // Set up polling after initial debounced fetch
     const interval = setInterval(fetchData, REFRESH_INTERVAL_MS);
     return () => {
+      clearTimeout(debounceRef.current);
       clearInterval(interval);
       if (abortRef.current) abortRef.current.abort();
     };

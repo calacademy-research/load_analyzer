@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import mysql.connector
-import db_utils
 import subprocess
 import signal
 import sys
@@ -138,13 +137,25 @@ exclude_users = [
     'nagios',
     'scan',
     'sophosav',
+    'sophos-spl-av',
+    'sophos-spl-local',
+    'sophos-spl-updatescheduler',
+    'sophos-spl-user',
     'zabbix',
     'tss',
     'tcpdump',
     '_rpc',
     'usbmux',
     'avahi',
-    'netdata'
+    'netdata',
+    'gdm',
+    'gnome-remote-desktop',
+    'ntpsec',
+    'nx',
+    'polkitd',
+    'rstudio-server',
+    'rtkit',
+    'munge',
 ]
 
 sql = """create table if not exists processes (
@@ -155,6 +166,7 @@ sql = """create table if not exists processes (
         comm varchar(100) not null,
         cputimes int not null,
         rss int not null,
+        pss int not null default 0,
         vsz bigint not null,
         thcount int not null,
         etimes int not null,
@@ -165,6 +177,13 @@ sql = """create table if not exists processes (
         host varchar(20))
 """
 db.execute(sql)
+
+# Add pss column if it doesn't exist (for existing tables)
+try:
+    db.execute("ALTER TABLE processes ADD COLUMN pss int NOT NULL DEFAULT 0 AFTER rss")
+    print("Added pss column to processes")
+except Exception:
+    pass  # Column already exists
 
 gpu_sql = """create table if not exists gpu_stats (
         host varchar(20) not null,
@@ -208,6 +227,8 @@ while True:
             error = ssh.stderr.readlines()
             sys.stderr.write(f"error: {error}\n")
 
+        # First pass: parse ps output and collect filtered PIDs
+        filtered_rows = []
         for line in result[1:]:
             string_line = line.strip().decode("utf-8")
             sarray = string_line.split('|')
@@ -220,7 +241,6 @@ while True:
 
             user = sarray[2]
             process = sarray[3]
-#            ppid = sarray[3]
             cputime = int(sarray[4])
             if cputime < 10:
                 continue
@@ -230,9 +250,36 @@ while True:
             if process in exclude_processes:
                 continue
 
+            filtered_rows.append(sarray)
+
+        # Collect PSS for all filtered PIDs in a single SSH call
+        pss_map = {}
+        if filtered_rows:
+            pids = [row[0] for row in filtered_rows]
+            pids_str = ' '.join(pids)
+            pss_cmd = f"for pid in {pids_str}; do pss=$(awk '/^Pss:/{{s+=$2}} END{{print s+0}}' /proc/$pid/smaps_rollup 2>/dev/null); echo \"$pid|$pss\"; done"
+            pss_ssh = subprocess.Popen(
+                ["ssh", "-i", "/root/.ssh/id_rsa", "-o", "StrictHostKeyChecking=no",
+                 f"admin@{host}", f"sudo sh -c '{pss_cmd}'"],
+                shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            pss_result = pss_ssh.stdout.readlines()
+            pss_ssh.wait()
+            for pss_line in pss_result:
+                parts = pss_line.strip().decode("utf-8").split('|')
+                if len(parts) == 2:
+                    try:
+                        pss_map[parts[0]] = int(float(parts[1]))
+                    except (ValueError, TypeError):
+                        pass
+
+        # Insert rows with PSS data
+        for sarray in filtered_rows:
+            pid_str = sarray[0]
+            pss_kb = pss_map.get(pid_str, 0)
+
             print(".", end='')
 
-            sql = """insert into processes (pid,ppid, username,comm,cputimes,rss,vsz,thcount,etimes,bdstart,args,snapshot_time_epoch, snapshot_datetime, host) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
+            sql = """insert into processes (pid,ppid, username,comm,cputimes,rss,pss,vsz,thcount,etimes,bdstart,args,snapshot_time_epoch, snapshot_datetime, host) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
             args = []
             for element in sarray:
                 try:
@@ -240,6 +287,8 @@ while True:
                     args.append(intelem)
                 except Exception:
                     args.append(element)
+            # Insert PSS after rss (index 5 in the values)
+            args.insert(5, pss_kb)
             args.append(epoch_time)
             args.append(datetime_time)
 

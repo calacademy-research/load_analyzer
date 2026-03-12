@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import DateRangePicker from './components/DateRangePicker';
 import OverviewTab from './components/OverviewTab';
-import PerUserTab from './components/PerUserTab';
+import AnalyticsTab from './components/AnalyticsTab';
 
 const styles = {
   app: { fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', padding: '10px' },
@@ -22,11 +22,11 @@ const styles = {
 function App() {
   const params = new URLSearchParams(window.location.search);
   const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const twoWeeksAgo = new Date(today);
+  twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
   const fmt = (d) => d.toISOString().split('T')[0];
 
-  const [startDate, setStartDate] = useState(params.get('start') || fmt(yesterday));
+  const [startDate, setStartDate] = useState(params.get('start') || fmt(twoWeeksAgo));
   const [endDate, setEndDate] = useState(params.get('end') || fmt(today));
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -39,12 +39,14 @@ function App() {
 
   return (
     <div style={styles.app}>
-      <DateRangePicker
-        startDate={startDate}
-        endDate={endDate}
-        onStartChange={setStartDate}
-        onEndChange={setEndDate}
-      />
+      {activeTab === 'overview' && (
+        <DateRangePicker
+          startDate={startDate}
+          endDate={endDate}
+          onStartChange={setStartDate}
+          onEndChange={setEndDate}
+        />
+      )}
       <div style={styles.tabs}>
         <div
           style={activeTab === 'overview' ? styles.activeTab : styles.tab}
@@ -53,14 +55,14 @@ function App() {
           Overview
         </div>
         <div
-          style={activeTab === 'per-user' ? styles.activeTab : styles.tab}
-          onClick={() => setActiveTab('per-user')}
+          style={activeTab === 'analytics' ? styles.activeTab : styles.tab}
+          onClick={() => setActiveTab('analytics')}
         >
-          Per-User Breakdown
+          Analytics
         </div>
       </div>
       {activeTab === 'overview' && <OverviewTab startDate={startDate} endDate={endDate} />}
-      {activeTab === 'per-user' && <PerUserTab startDate={startDate} endDate={endDate} />}
+      {activeTab === 'analytics' && <AnalyticsTab />}
     </div>
   );
 }
