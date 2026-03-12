@@ -73,8 +73,9 @@ db = DbUtils(
     'load',
 )
 
-HOSTS = ['rosalindf', 'alice', 'tdobz', 'flor', 'ibss-spark-1']
-GPU_HOSTS = ['alice', 'ibss-spark-1']
+HOSTS = ['rosalindf', 'alice', 'tdobz', 'flor', 'ibss-spark-1',
+         'blackburn', 'deepsquid', 'deepsheep', 'rudra', 'kali', 'dirac']
+GPU_HOSTS = ['alice', 'ibss-spark-1', 'deepsquid', 'deepsheep']
 
 ps_arg_tuples = [
     ('pid', 'process ID'),

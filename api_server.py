@@ -70,13 +70,19 @@ def get_engine():
 
 
 SERVERS = [
+    ('dirac', 576, 755),
+    ('blackburn', 256, 1500),
     ('flor', 256, 1500),
     ('rosalindf', 256, 2000),
+    ('rudra', 256, 500),
     ('alice', 192, 1000),
+    ('kali', 128, 500),
     ('tdobz', 96, 1000),
+    ('deepsquid', 64, 250),
+    ('deepsheep', 32, 188),
     ('ibss-spark-1', 20, 121),
 ]
-GPU_HOSTS = ['alice', 'ibss-spark-1']
+GPU_HOSTS = ['alice', 'ibss-spark-1', 'deepsquid', 'deepsheep']
 
 USER_COLORS = [
     '#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',

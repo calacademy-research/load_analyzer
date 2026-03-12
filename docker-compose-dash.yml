@@ -8,10 +8,17 @@ services:
     restart: always
     network_mode: "host"
     extra_hosts:
-      - "alice:10.1.10.183"
-      - "rosalindf:10.1.10.182"
-      - "tdobz:10.1.10.205"
-      - "flor:10.1.10.176"
+      - "alice:10.4.90.183"
+      - "rosalindf:10.4.90.182"
+      - "tdobz:10.4.90.205"
+      - "flor:10.4.90.176"
+      - "ibss-spark-1:10.4.90.200"
+      - "blackburn:10.4.90.175"
+      - "deepsquid:10.4.90.168"
+      - "deepsheep:10.4.90.192"
+      - "rudra:10.4.90.132"
+      - "kali:10.4.90.203"
+      - "dirac:10.4.90.100"
     environment:
       - MYSQL_HOST=localhost
       - MYSQL_PORT=3312
