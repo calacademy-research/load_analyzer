@@ -468,30 +468,6 @@ export default function AnalyticsTab() {
         </div>
       )}
 
-      {/* Slurm Jobs Detail */}
-      {slurmData && slurmData.jobs && slurmData.jobs.length > 0 && (
-        <div style={sectionStyle}>
-          <div style={sectionHeader}>Recent Slurm Jobs</div>
-          <SortableTable
-            columns={[
-              { key: 'job_id', label: 'Job ID' },
-              { key: 'username', label: 'User' },
-              { key: 'alloc_cpus', label: 'CPUs' },
-              { key: 'req_mem_gb', label: 'Req Mem (GB)' },
-              { key: 'max_rss_gb', label: 'Used Mem (GB)' },
-              {
-                key: 'mem_efficiency', label: 'Efficiency',
-                render: (v) => v != null ? `${v}%` : '—',
-              },
-              { key: 'elapsed_hours', label: 'Hours' },
-              { key: 'state', label: 'State' },
-              { key: 'start_time', label: 'Started' },
-            ]}
-            rows={slurmData.jobs.map((j) => ({ ...j, _key: j.job_id }))}
-            defaultSort="start_time"
-          />
-        </div>
-      )}
     </div>
   );
 }

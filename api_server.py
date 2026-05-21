@@ -588,29 +588,7 @@ async def get_slurm_efficiency(
     )
 
     if df.empty:
-        return {"jobs": [], "user_summary": [], "cpu_summary": []}
-
-    # Per-job data - cap to most-recent N for the detail table (df is ORDER BY start_time DESC).
-    # user_summary below still aggregates over the full df.
-    JOBS_LIMIT = 500
-    jobs = []
-    for _, row in df.head(JOBS_LIMIT).iterrows():
-        mem_efficiency = (
-            round(row['max_rss_gb'] / row['req_mem_gb'] * 100, 1)
-            if row['req_mem_gb'] > 0 and row['max_rss_gb'] > 0 else None
-        )
-        jobs.append({
-            "job_id": row['job_id'],
-            "username": row['username'],
-            "alloc_cpus": int(row['alloc_cpus']),
-            "req_mem_gb": round(float(row['req_mem_gb']), 1),
-            "max_rss_gb": round(float(row['max_rss_gb']), 1),
-            "mem_efficiency": mem_efficiency,
-            "elapsed_hours": round(row['elapsed_seconds'] / 3600, 1),
-            "state": row['state'],
-            "node_list": row['node_list'],
-            "start_time": str(row['start_time']) if row['start_time'] else None,
-        })
+        return {"user_summary": [], "cpu_summary": []}
 
     # Per-user summary - computed only over jobs that have a real MaxRSS reading (has_rss).
     # Efficiency is size-weighted (sum used / sum requested) so it equals Avg Used / Avg
@@ -668,7 +646,7 @@ async def get_slurm_efficiency(
             })
         cpu_summary.sort(key=lambda x: (x['cpu_wasted_pct'] if x['cpu_wasted_pct'] is not None else -1), reverse=True)
 
-    return {"jobs": jobs, "user_summary": user_summary, "cpu_summary": cpu_summary}
+    return {"user_summary": user_summary, "cpu_summary": cpu_summary}
 
 
 @app.get("/api/users")
