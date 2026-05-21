@@ -46,12 +46,63 @@ def ensure_table(engine):
             logger.info("Added pss column to load_summary")
         except Exception:
             pass  # Column already exists
+        # Per-process peak-stats table backing the Processes tab (avoids GROUP BY
+        # over the 200M+ row processes table on every request).
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS process_summary (
+                host VARCHAR(20) NOT NULL,
+                pid INT NOT NULL,
+                username VARCHAR(50) NOT NULL,
+                comm VARCHAR(100) NOT NULL,
+                args VARCHAR(500),
+                peak_rss DOUBLE NOT NULL DEFAULT 0,
+                peak_pss DOUBLE NOT NULL DEFAULT 0,
+                max_cputimes DOUBLE NOT NULL DEFAULT 0,
+                max_thcount INT NOT NULL DEFAULT 0,
+                max_etimes DOUBLE NOT NULL DEFAULT 0,
+                first_seen DATETIME,
+                last_seen DATETIME,
+                snapshot_count INT NOT NULL DEFAULT 0,
+                PRIMARY KEY (host, pid, username, comm),
+                INDEX idx_ps_last_seen (last_seen),
+                INDEX idx_ps_user_last (username, last_seen),
+                INDEX idx_ps_host_last (host, last_seen)
+            )
+        """))
+
+
+def update_process_summary(engine):
+    """Upsert the last day's per-process peak stats into process_summary and prune
+    rows older than the longest dashboard window (90d). Idempotent (GREATEST/LEAST)."""
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO process_summary (host,pid,username,comm,args,peak_rss,peak_pss,
+                max_cputimes,max_thcount,max_etimes,first_seen,last_seen,snapshot_count)
+            SELECT host,pid,username,comm, SUBSTRING(MAX(args),1,500),
+                   MAX(rss), MAX(pss), MAX(cputimes), MAX(thcount), MAX(etimes),
+                   MIN(snapshot_datetime), MAX(snapshot_datetime), COUNT(*)
+            FROM processes WHERE snapshot_datetime >= NOW() - INTERVAL 1 DAY
+            GROUP BY host,pid,username,comm
+            ON DUPLICATE KEY UPDATE
+                args=VALUES(args),
+                peak_rss=GREATEST(peak_rss,VALUES(peak_rss)),
+                peak_pss=GREATEST(peak_pss,VALUES(peak_pss)),
+                max_cputimes=GREATEST(max_cputimes,VALUES(max_cputimes)),
+                max_thcount=GREATEST(max_thcount,VALUES(max_thcount)),
+                max_etimes=GREATEST(max_etimes,VALUES(max_etimes)),
+                first_seen=LEAST(first_seen,VALUES(first_seen)),
+                last_seen=GREATEST(last_seen,VALUES(last_seen)),
+                snapshot_count=GREATEST(snapshot_count,VALUES(snapshot_count))
+        """))
+        conn.execute(text("DELETE FROM process_summary WHERE last_seen < NOW() - INTERVAL 90 DAY"))
+    logger.info("Updated process_summary (1-day upsert + 90d prune)")
 
 
 def process_data():
     try:
         engine = get_engine()
         ensure_table(engine)
+        update_process_summary(engine)
 
         start = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
         end = datetime.now().strftime('%Y-%m-%d %H:%M:%S')

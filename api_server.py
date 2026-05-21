@@ -708,21 +708,15 @@ async def get_user_processes(
         host_filter = " AND host = :host"
         params['host'] = host
 
+    # Read from the pre-aggregated process_summary table (maintained by
+    # process_data_job) instead of GROUP BY over the 200M+ row processes table.
     sql = (
-        "SELECT host, pid, username, comm, "
-        "MAX(args) AS args, "
-        "MAX(rss) AS peak_rss, "
-        "MAX(pss) AS peak_pss, "
-        "MAX(cputimes) AS max_cputimes, "
-        "MAX(thcount) AS max_thcount, "
-        "MIN(snapshot_datetime) AS first_seen, "
-        "MAX(snapshot_datetime) AS last_seen, "
-        "MAX(etimes) AS etimes, "
-        "COUNT(*) AS snapshot_count "
-        "FROM processes "
-        f"WHERE snapshot_datetime >= :cutoff{user_filter}{host_filter} "
-        "GROUP BY host, pid, username, comm "
-        "ORDER BY GREATEST(MAX(rss), MAX(pss)) DESC "
+        "SELECT host, pid, username, comm, args, peak_rss, peak_pss, "
+        "max_cputimes, max_thcount, max_etimes AS etimes, "
+        "first_seen, last_seen, snapshot_count "
+        "FROM process_summary "
+        f"WHERE last_seen >= :cutoff{user_filter}{host_filter} "
+        "ORDER BY GREATEST(peak_rss, peak_pss) DESC "
         "LIMIT 500"
     )
 
