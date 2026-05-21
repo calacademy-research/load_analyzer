@@ -359,17 +359,17 @@ export default function AnalyticsTab() {
               data={[
                 {
                   y: slurmData.user_summary.slice(0, 15).map((u) => u.username).reverse(),
-                  x: slurmData.user_summary.slice(0, 15).map((u) => u.total_wasted_gb_hours).reverse(),
+                  x: slurmData.user_summary.slice(0, 15).map((u) => u.waste_share_pct).reverse(),
                   type: 'bar', orientation: 'h',
                   marker: { color: '#D94A7A' },
-                  text: slurmData.user_summary.slice(0, 15).map((u) => `${u.total_wasted_gb_hours}`).reverse(),
+                  text: slurmData.user_summary.slice(0, 15).map((u) => `${u.waste_share_pct}%`).reverse(),
                   textposition: 'auto', textfont: { size: 15 },
-                  hovertemplate: '<b>%{y}</b>: %{x:.1f} wasted GB-hours<extra></extra>',
+                  hovertemplate: '<b>%{y}</b>: %{x:.1f}% of all wasted RAM-time<extra></extra>',
                 },
               ]}
               layout={{
-                title: { text: 'Wasted GB-Hours by User (Requested − Used)', font: { size: 20 } },
-                xaxis: { title: { text: 'Wasted GB-Hours', font: { size: 16 } }, tickfont: { size: 15 } },
+                title: { text: 'Share of Wasted RAM-Time by User (%)', font: { size: 20 } },
+                xaxis: { title: { text: '% of total wasted RAM-time', font: { size: 16 } }, tickfont: { size: 15 } },
                 yaxis: { automargin: true, tickfont: { size: 16 } },
                 margin: { l: 140, r: 30, t: 50, b: 50 },
                 height: Math.max(300, slurmData.user_summary.slice(0, 15).length * 36),
@@ -401,7 +401,12 @@ export default function AnalyticsTab() {
                 key: 'avg_mem_efficiency', label: 'Mem Efficiency',
                 render: (v) => v != null ? `${v}%` : '—',
               },
-              { key: 'total_wasted_gb_hours', label: 'Wasted GB-Hours' },
+              {
+                key: 'waste_share_pct', label: '% of Waste',
+                render: (v, row) => (
+                  <span title={`${row.total_wasted_gb_hours} GB-hr of RAM held idle`}>{v}%</span>
+                ),
+              },
             ]}
             rows={slurmData.user_summary.map((u) => ({ ...u, _key: u.username }))}
             defaultSort="total_wasted_gb_hours"

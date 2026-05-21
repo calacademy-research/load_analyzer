@@ -640,6 +640,12 @@ async def get_slurm_efficiency(
                 "avg_max_rss_gb": round(sum_used / measured, 1),
             })
         user_summary.sort(key=lambda x: x['total_wasted_gb_hours'], reverse=True)
+        grand_total_waste = sum(u['total_wasted_gb_hours'] for u in user_summary)
+        for u in user_summary:
+            u['waste_share_pct'] = (
+                round(u['total_wasted_gb_hours'] / grand_total_waste * 100, 1)
+                if grand_total_waste > 0 else 0
+            )
 
     return {"jobs": jobs, "user_summary": user_summary}
 
