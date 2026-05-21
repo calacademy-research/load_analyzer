@@ -1,4 +1,4 @@
-import Plot from 'react-plotly.js';
+import Plot from '../plot';
 
 export default function ServerChart({ server }) {
   const { hostname, cpu_limit, mem_limit, cpu, mem, gpu } = server;

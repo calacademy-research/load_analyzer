@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useServerData } from '../hooks/useServerData';
-import Plot from 'react-plotly.js';
+import Plot from '../plot';
 import DateRangeSlider from './DateRangeSlider';
 
 const SERVER_COLORS = {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import Plot from 'react-plotly.js';
+import Plot from '../plot';
 
 const PROC_COLORS = [
   '#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',

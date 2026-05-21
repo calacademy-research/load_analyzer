@@ -1,4 +1,4 @@
-import Plot from 'react-plotly.js';
+import Plot from '../plot';
 import { USER_COLORS } from '../config';
 
 export default function UserStackedChart({ server, dataKey, valueLabel, yLimit }) {
