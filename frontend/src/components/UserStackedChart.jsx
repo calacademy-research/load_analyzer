@@ -21,7 +21,7 @@ export default function UserStackedChart({ server, dataKey, valueLabel, yLimit }
   const layout = {
     title: `${valueLabel} by user on ${server.hostname}`,
     xaxis: { title: 'Time' },
-    yaxis: { title: valueLabel, range: [0, yLimit] },
+    yaxis: { title: valueLabel, rangemode: 'tozero' },
     uirevision: 'preserve UI state during updates',
     margin: { t: 40, b: 40, l: 60, r: 60 },
     height: 350,

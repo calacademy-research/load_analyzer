@@ -90,8 +90,8 @@ export default function ServerChart({ server }) {
   const layout = {
     title: `CPU and memory usage on ${hostname}`,
     xaxis: { title: 'Time' },
-    yaxis: { title: 'CPU usage', range: [0, cpu_limit], side: 'left' },
-    yaxis2: { title: 'Memory usage', range: [0, mem_limit], side: 'right', overlaying: 'y' },
+    yaxis: { title: 'CPU usage', rangemode: 'tozero', side: 'left' },
+    yaxis2: { title: 'Memory usage', rangemode: 'tozero', side: 'right', overlaying: 'y' },
     uirevision: 'preserve UI state during updates',
     margin: { t: 40, b: 40, l: 60, r: 60 },
     height: 350,
