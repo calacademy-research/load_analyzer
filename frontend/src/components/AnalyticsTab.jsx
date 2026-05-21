@@ -384,10 +384,21 @@ export default function AnalyticsTab() {
             columns={[
               { key: 'username', label: 'User' },
               { key: 'job_count', label: 'Jobs' },
-              { key: 'avg_req_mem_gb', label: 'Avg Requested (GB)' },
+              {
+                key: 'coverage_pct', label: 'Measured',
+                render: (v, row) => (
+                  <span
+                    style={v < 25 ? { color: '#c00' } : undefined}
+                    title={`${row.measured_jobs} of ${row.job_count} jobs had a memory reading`}
+                  >
+                    {row.measured_jobs} ({v}%)
+                  </span>
+                ),
+              },
+              { key: 'avg_req_mem_gb', label: 'Avg Req (GB)' },
               { key: 'avg_max_rss_gb', label: 'Avg Used (GB)' },
               {
-                key: 'avg_mem_efficiency', label: 'Efficiency',
+                key: 'avg_mem_efficiency', label: 'Mem Efficiency',
                 render: (v) => v != null ? `${v}%` : '—',
               },
               { key: 'total_wasted_gb_hours', label: 'Wasted GB-Hours' },

@@ -612,29 +612,32 @@ async def get_slurm_efficiency(
             "start_time": str(row['start_time']) if row['start_time'] else None,
         })
 
-    # Per-user summary
+    # Per-user summary - computed only over jobs that have a real MaxRSS reading (has_rss).
+    # Efficiency is size-weighted (sum used / sum requested) so it equals Avg Used / Avg
+    # Requested and is not skewed by many tiny jobs; coverage shows how representative it is.
     completed = df[df['state'].isin(['COMPLETED', 'TIMEOUT', 'CANCELLED'])]
     user_summary = []
     if not completed.empty:
         for user, udf in completed.groupby('username'):
-            has_rss = udf[udf['max_rss_gb'] > 0]
-            avg_mem_eff = (
-                round(float((has_rss['max_rss_gb'] / has_rss['req_mem_gb']).mean() * 100), 1)
-                if not has_rss.empty and (has_rss['req_mem_gb'] > 0).all() else None
-            )
-            total_wasted_gb_hours = 0
-            for _, r in has_rss.iterrows():
-                if r['req_mem_gb'] > 0:
-                    wasted_gb = max(0, r['req_mem_gb'] - r['max_rss_gb'])
-                    total_wasted_gb_hours += wasted_gb * r['elapsed_seconds'] / 3600
-
+            has_rss = udf[(udf['max_rss_gb'] > 0) & (udf['req_mem_gb'] > 0)]
+            measured = len(has_rss)
+            if measured == 0:
+                continue
+            total = len(udf)
+            hrs = has_rss['elapsed_seconds'] / 3600.0
+            sum_req = float(has_rss['req_mem_gb'].sum())
+            sum_used = float(has_rss['max_rss_gb'].sum())
+            wasted_gb_hours = float(((has_rss['req_mem_gb'] - has_rss['max_rss_gb']).clip(lower=0) * hrs).sum())
+            eff = round(sum_used / sum_req * 100, 1) if sum_req > 0 else None
             user_summary.append({
                 "username": user,
-                "job_count": len(udf),
-                "avg_mem_efficiency": avg_mem_eff,
-                "total_wasted_gb_hours": round(total_wasted_gb_hours, 1),
-                "avg_req_mem_gb": round(float(udf['req_mem_gb'].mean()), 1),
-                "avg_max_rss_gb": round(float(has_rss['max_rss_gb'].mean()), 1) if not has_rss.empty else 0,
+                "job_count": total,
+                "measured_jobs": measured,
+                "coverage_pct": round(measured / total * 100, 1) if total else 0,
+                "avg_mem_efficiency": eff,
+                "total_wasted_gb_hours": round(wasted_gb_hours, 1),
+                "avg_req_mem_gb": round(sum_req / measured, 1),
+                "avg_max_rss_gb": round(sum_used / measured, 1),
             })
         user_summary.sort(key=lambda x: x['total_wasted_gb_hours'], reverse=True)
 
