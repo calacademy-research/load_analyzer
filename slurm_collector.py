@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 SLURM_HOST = 'ibss-genomics'
 SLURM_USER = 'loadmon'
+LOOKBACK_DAYS = 1  # per-run window; run hourly so overlapping windows keep data fresh
 
 
 def get_engine():
@@ -95,8 +96,8 @@ def collect_jobs():
     engine = get_engine()
     ensure_table(engine)
 
-    # Query last 7 days of completed/failed jobs
-    start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+    # Query recent jobs (small window keeps the sacct --allusers query fast)
+    start_date = (datetime.now() - timedelta(days=LOOKBACK_DAYS)).strftime('%Y-%m-%d')
 
     sacct_cmd = (
         f"ssh -i /admin/monitor-keys/monitor_ed25519 -o StrictHostKeyChecking=accept-new {SLURM_USER}@{SLURM_HOST} "
@@ -105,14 +106,28 @@ def collect_jobs():
     )
 
     logger.info(f"Running: {sacct_cmd}")
-    result = subprocess.run(sacct_cmd, shell=True, capture_output=True, text=True, timeout=60)
+    result = subprocess.run(sacct_cmd, shell=True, capture_output=True, text=True, timeout=120)
 
     if result.returncode != 0:
         logger.error(f"sacct failed: {result.stderr}")
         return
 
+    lines = result.stdout.strip().split('\n')
+    # First pass: peak MaxRSS for a job lives on its step rows (.batch/.0/...), not the alloc row
+    step_maxrss = {}
+    for line in lines:
+        if not line:
+            continue
+        sf = line.split('|')
+        if len(sf) < 12 or '.' not in sf[0]:
+            continue
+        parent = sf[0].split('.')[0]
+        rss = parse_mem(sf[5])
+        if rss > step_maxrss.get(parent, 0):
+            step_maxrss[parent] = rss
+
     rows = []
-    for line in result.stdout.strip().split('\n'):
+    for line in lines:
         if not line:
             continue
         fields = line.split('|')
@@ -131,14 +146,15 @@ def collect_jobs():
         partition = fields[2] or None
         alloc_cpus = int(fields[3]) if fields[3] else 0
         req_mem_gb = parse_mem(fields[4])
-        max_rss_gb = parse_mem(fields[5])
+        max_rss_gb = max(parse_mem(fields[5]), step_maxrss.get(job_id, 0))
         elapsed_secs = parse_elapsed(fields[6])
         state = fields[7].split(' ')[0] if fields[7] else None  # Remove "by XXXX" suffix
 
         node_list = fields[8] or None
-        submit_time = fields[9] if fields[9] and fields[9] != 'Unknown' else None
-        start_time = fields[10] if fields[10] and fields[10] != 'Unknown' else None
-        end_time = fields[11] if fields[11] and fields[11] != 'Unknown' else None
+        _bad_dt = ('', 'Unknown', 'None')
+        submit_time = fields[9] if fields[9] not in _bad_dt else None
+        start_time = fields[10] if fields[10] not in _bad_dt else None
+        end_time = fields[11] if fields[11] not in _bad_dt else None
 
         rows.append({
             'job_id': job_id,
@@ -161,22 +177,24 @@ def collect_jobs():
 
     logger.info(f"Collected {len(rows)} jobs")
 
-    # Upsert rows
+    # Upsert rows in batches (executemany) to handle high row counts
+    stmt = text("""
+        INSERT INTO slurm_jobs (job_id, username, partition_name, alloc_cpus,
+            req_mem_gb, max_rss_gb, elapsed_seconds, state, node_list,
+            submit_time, start_time, end_time)
+        VALUES (:job_id, :username, :partition_name, :alloc_cpus,
+            :req_mem_gb, :max_rss_gb, :elapsed_seconds, :state, :node_list,
+            :submit_time, :start_time, :end_time)
+        ON DUPLICATE KEY UPDATE
+            max_rss_gb = VALUES(max_rss_gb),
+            elapsed_seconds = VALUES(elapsed_seconds),
+            state = VALUES(state),
+            end_time = VALUES(end_time)
+    """)
+    CHUNK = 1000
     with engine.begin() as conn:
-        for row in rows:
-            conn.execute(text("""
-                INSERT INTO slurm_jobs (job_id, username, partition_name, alloc_cpus,
-                    req_mem_gb, max_rss_gb, elapsed_seconds, state, node_list,
-                    submit_time, start_time, end_time)
-                VALUES (:job_id, :username, :partition_name, :alloc_cpus,
-                    :req_mem_gb, :max_rss_gb, :elapsed_seconds, :state, :node_list,
-                    :submit_time, :start_time, :end_time)
-                ON DUPLICATE KEY UPDATE
-                    max_rss_gb = VALUES(max_rss_gb),
-                    elapsed_seconds = VALUES(elapsed_seconds),
-                    state = VALUES(state),
-                    end_time = VALUES(end_time)
-            """), row)
+        for i in range(0, len(rows), CHUNK):
+            conn.execute(stmt, rows[i:i + CHUNK])
 
     logger.info(f"Wrote {len(rows)} jobs to slurm_jobs")
 
