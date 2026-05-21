@@ -590,9 +590,11 @@ async def get_slurm_efficiency(
     if df.empty:
         return {"jobs": [], "user_summary": []}
 
-    # Per-job data
+    # Per-job data - cap to most-recent N for the detail table (df is ORDER BY start_time DESC).
+    # user_summary below still aggregates over the full df.
+    JOBS_LIMIT = 500
     jobs = []
-    for _, row in df.iterrows():
+    for _, row in df.head(JOBS_LIMIT).iterrows():
         mem_efficiency = (
             round(row['max_rss_gb'] / row['req_mem_gb'] * 100, 1)
             if row['req_mem_gb'] > 0 and row['max_rss_gb'] > 0 else None
