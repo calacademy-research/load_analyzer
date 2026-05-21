@@ -716,7 +716,7 @@ async def get_user_processes(
         "first_seen, last_seen, snapshot_count "
         "FROM process_summary "
         f"WHERE last_seen >= :cutoff{user_filter}{host_filter} "
-        "ORDER BY GREATEST(peak_rss, peak_pss) DESC "
+        "ORDER BY peak_mem DESC "
         "LIMIT 500"
     )
 

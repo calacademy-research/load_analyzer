@@ -57,6 +57,7 @@ def ensure_table(engine):
                 args VARCHAR(500),
                 peak_rss DOUBLE NOT NULL DEFAULT 0,
                 peak_pss DOUBLE NOT NULL DEFAULT 0,
+                peak_mem DOUBLE AS (GREATEST(peak_rss, peak_pss)) STORED,
                 max_cputimes DOUBLE NOT NULL DEFAULT 0,
                 max_thcount INT NOT NULL DEFAULT 0,
                 max_etimes DOUBLE NOT NULL DEFAULT 0,
@@ -66,9 +67,20 @@ def ensure_table(engine):
                 PRIMARY KEY (host, pid, username, comm),
                 INDEX idx_ps_last_seen (last_seen),
                 INDEX idx_ps_user_last (username, last_seen),
-                INDEX idx_ps_host_last (host, last_seen)
+                INDEX idx_ps_host_last (host, last_seen),
+                INDEX idx_ps_peak (peak_mem),
+                INDEX idx_ps_user_peak (username, peak_mem),
+                INDEX idx_ps_host_peak (host, peak_mem)
             )
         """))
+        # Migrate existing process_summary: add peak_mem generated column + indexes
+        if not conn.execute(text(
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() "
+            "AND table_name='process_summary' AND column_name='peak_mem'"
+        )).scalar():
+            conn.execute(text("ALTER TABLE process_summary ADD COLUMN peak_mem DOUBLE AS (GREATEST(peak_rss, peak_pss)) STORED"))
+            conn.execute(text("ALTER TABLE process_summary ADD INDEX idx_ps_peak (peak_mem), "
+                              "ADD INDEX idx_ps_user_peak (username, peak_mem), ADD INDEX idx_ps_host_peak (host, peak_mem)"))
 
 
 def update_process_summary(engine):
