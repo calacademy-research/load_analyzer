@@ -353,7 +353,7 @@ export default function AnalyticsTab() {
       {/* Slurm Allocation Efficiency */}
       {slurmData && slurmData.user_summary && slurmData.user_summary.length > 0 && (
         <div style={sectionStyle}>
-          <div style={sectionHeader}>Slurm Allocation Efficiency</div>
+          <div style={sectionHeader}>Memory Allocation Efficiency</div>
           <div style={{ padding: '8px' }}>
             <Plot
               data={[
@@ -405,6 +405,65 @@ export default function AnalyticsTab() {
             ]}
             rows={slurmData.user_summary.map((u) => ({ ...u, _key: u.username }))}
             defaultSort="wasted_pct"
+          />
+        </div>
+      )}
+
+      {/* CPU Allocation Efficiency */}
+      {slurmData && slurmData.cpu_summary && slurmData.cpu_summary.length > 0 && (
+        <div style={sectionStyle}>
+          <div style={sectionHeader}>CPU Allocation Efficiency</div>
+          <div style={{ padding: '8px' }}>
+            <Plot
+              data={[
+                {
+                  y: slurmData.cpu_summary.slice(0, 15).map((u) => u.username).reverse(),
+                  x: slurmData.cpu_summary.slice(0, 15).map((u) => u.cpu_wasted_pct).reverse(),
+                  type: 'bar', orientation: 'h',
+                  marker: { color: '#4A90D9' },
+                  text: slurmData.cpu_summary.slice(0, 15).map((u) => `${u.cpu_wasted_pct}%`).reverse(),
+                  textposition: 'auto', textfont: { size: 15 },
+                  hovertemplate: '<b>%{y}</b>: %{x:.1f}% of allocated cores wasted (avg)<extra></extra>',
+                },
+              ]}
+              layout={{
+                title: { text: 'Average Core Allocation Wasted by User (%)', font: { size: 20 } },
+                xaxis: { title: { text: '% of allocated cores wasted (avg)', font: { size: 16 } }, tickfont: { size: 15 }, range: [0, 100] },
+                yaxis: { automargin: true, tickfont: { size: 16 } },
+                margin: { l: 140, r: 30, t: 50, b: 50 },
+                height: Math.max(300, slurmData.cpu_summary.slice(0, 15).length * 36),
+                font: { size: 15 },
+              }}
+              useResizeHandler
+              style={{ width: '100%' }}
+              config={{ responsive: true }}
+            />
+          </div>
+          <SortableTable
+            columns={[
+              { key: 'username', label: 'User' },
+              { key: 'job_count', label: 'Jobs' },
+              {
+                key: 'coverage_pct', label: 'Measured',
+                render: (v, row) => (
+                  <span
+                    style={v < 25 ? { color: '#c00' } : undefined}
+                    title={`${row.measured_jobs} of ${row.job_count} jobs had CPU data`}
+                  >
+                    {row.measured_jobs} ({v}%)
+                  </span>
+                ),
+              },
+              { key: 'avg_alloc_cpus', label: 'Avg Cores Req' },
+              { key: 'avg_used_cpus', label: 'Avg Cores Used' },
+              {
+                key: 'cpu_wasted_pct', label: 'CPU Wasted %',
+                render: (v) => v != null ? `${v}%` : '—',
+              },
+              { key: 'total_wasted_core_hours', label: 'Total Wasted (core-hr)' },
+            ]}
+            rows={slurmData.cpu_summary.map((u) => ({ ...u, _key: u.username }))}
+            defaultSort="cpu_wasted_pct"
           />
         </div>
       )}

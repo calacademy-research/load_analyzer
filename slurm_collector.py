@@ -39,6 +39,7 @@ def ensure_table(engine):
                 alloc_cpus INT NOT NULL DEFAULT 0,
                 req_mem_gb DOUBLE NOT NULL DEFAULT 0,
                 max_rss_gb DOUBLE NOT NULL DEFAULT 0,
+                total_cpu_seconds DOUBLE NOT NULL DEFAULT 0,
                 elapsed_seconds INT NOT NULL DEFAULT 0,
                 state VARCHAR(30),
                 node_list VARCHAR(200),
@@ -50,6 +51,14 @@ def ensure_table(engine):
                 INDEX idx_slurm_time (end_time)
             )
         """))
+        # Migrate existing tables: add total_cpu_seconds if missing
+        exists = conn.execute(text(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() AND table_name = 'slurm_jobs' "
+            "AND column_name = 'total_cpu_seconds'"
+        )).scalar()
+        if not exists:
+            conn.execute(text("ALTER TABLE slurm_jobs ADD COLUMN total_cpu_seconds DOUBLE NOT NULL DEFAULT 0"))
 
 
 def parse_mem(mem_str):
@@ -92,6 +101,25 @@ def parse_elapsed(elapsed_str):
         return 0
 
 
+def parse_cpu_seconds(cpu_str):
+    """Parse Slurm TotalCPU (e.g. '2-06:07:26', '03:24:21', '05:00.123') to seconds."""
+    if not cpu_str:
+        return 0.0
+    cpu_str = cpu_str.strip()
+    try:
+        days = 0
+        if '-' in cpu_str:
+            day_part, cpu_str = cpu_str.split('-', 1)
+            days = int(day_part)
+        parts = [float(x) for x in cpu_str.split(':')]
+        while len(parts) < 3:
+            parts.insert(0, 0.0)
+        h, m, sec = parts[-3], parts[-2], parts[-1]
+        return days * 86400 + h * 3600 + m * 60 + sec
+    except (ValueError, IndexError):
+        return 0.0
+
+
 def collect_jobs():
     engine = get_engine()
     ensure_table(engine)
@@ -102,7 +130,7 @@ def collect_jobs():
     sacct_cmd = (
         f"ssh -i /admin/monitor-keys/monitor_ed25519 -o StrictHostKeyChecking=accept-new {SLURM_USER}@{SLURM_HOST} "
         f"\"sacct --starttime={start_date} --allusers --noheader -P "
-        f"--format=JobID,User,Partition,AllocCPUS,ReqMem,MaxRSS,Elapsed,State,NodeList,Submit,Start,End\""
+        f"--format=JobID,User,Partition,AllocCPUS,ReqMem,MaxRSS,Elapsed,State,NodeList,Submit,Start,End,TotalCPU\""
     )
 
     logger.info(f"Running: {sacct_cmd}")
@@ -155,6 +183,7 @@ def collect_jobs():
         submit_time = fields[9] if fields[9] not in _bad_dt else None
         start_time = fields[10] if fields[10] not in _bad_dt else None
         end_time = fields[11] if fields[11] not in _bad_dt else None
+        total_cpu_seconds = parse_cpu_seconds(fields[12]) if len(fields) > 12 else 0.0
 
         rows.append({
             'job_id': job_id,
@@ -163,6 +192,7 @@ def collect_jobs():
             'alloc_cpus': alloc_cpus,
             'req_mem_gb': round(req_mem_gb, 2),
             'max_rss_gb': round(max_rss_gb, 2),
+            'total_cpu_seconds': round(total_cpu_seconds, 1),
             'elapsed_seconds': elapsed_secs,
             'state': state,
             'node_list': node_list,
@@ -180,13 +210,14 @@ def collect_jobs():
     # Upsert rows in batches (executemany) to handle high row counts
     stmt = text("""
         INSERT INTO slurm_jobs (job_id, username, partition_name, alloc_cpus,
-            req_mem_gb, max_rss_gb, elapsed_seconds, state, node_list,
+            req_mem_gb, max_rss_gb, total_cpu_seconds, elapsed_seconds, state, node_list,
             submit_time, start_time, end_time)
         VALUES (:job_id, :username, :partition_name, :alloc_cpus,
-            :req_mem_gb, :max_rss_gb, :elapsed_seconds, :state, :node_list,
+            :req_mem_gb, :max_rss_gb, :total_cpu_seconds, :elapsed_seconds, :state, :node_list,
             :submit_time, :start_time, :end_time)
         ON DUPLICATE KEY UPDATE
             max_rss_gb = VALUES(max_rss_gb),
+            total_cpu_seconds = VALUES(total_cpu_seconds),
             elapsed_seconds = VALUES(elapsed_seconds),
             state = VALUES(state),
             end_time = VALUES(end_time)

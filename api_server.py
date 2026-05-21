@@ -581,14 +581,14 @@ async def get_slurm_efficiency(
 
     df = _query_df(
         "SELECT job_id, username, partition_name, alloc_cpus, req_mem_gb, "
-        "max_rss_gb, elapsed_seconds, state, node_list, submit_time, start_time, end_time "
+        "max_rss_gb, total_cpu_seconds, elapsed_seconds, state, node_list, submit_time, start_time, end_time "
         "FROM slurm_jobs WHERE start_time BETWEEN :start AND :end "
         "ORDER BY start_time DESC",
         {'start': start_str, 'end': end_str}
     )
 
     if df.empty:
-        return {"jobs": [], "user_summary": []}
+        return {"jobs": [], "user_summary": [], "cpu_summary": []}
 
     # Per-job data - cap to most-recent N for the detail table (df is ORDER BY start_time DESC).
     # user_summary below still aggregates over the full df.
@@ -642,7 +642,33 @@ async def get_slurm_efficiency(
             })
         user_summary.sort(key=lambda x: (x['wasted_pct'] if x['wasted_pct'] is not None else -1), reverse=True)
 
-    return {"jobs": jobs, "user_summary": user_summary}
+    # Per-user CPU summary - allocated core-time (alloc_cpus * elapsed) vs used (TotalCPU).
+    cpu_summary = []
+    if not completed.empty:
+        for user, udf in completed.groupby('username'):
+            has_cpu = udf[(udf['total_cpu_seconds'] > 0) & (udf['alloc_cpus'] > 0) & (udf['elapsed_seconds'] > 0)]
+            measured = len(has_cpu)
+            if measured == 0:
+                continue
+            total = len(udf)
+            alloc_cs = float((has_cpu['alloc_cpus'] * has_cpu['elapsed_seconds']).sum())
+            used_cs = float(has_cpu['total_cpu_seconds'].sum())
+            elapsed_sum = float(has_cpu['elapsed_seconds'].sum())
+            eff = round(used_cs / alloc_cs * 100, 1) if alloc_cs > 0 else None
+            wasted_core_hours = max(0.0, alloc_cs - used_cs) / 3600.0
+            cpu_summary.append({
+                "username": user,
+                "job_count": total,
+                "measured_jobs": measured,
+                "coverage_pct": round(measured / total * 100, 1) if total else 0,
+                "cpu_wasted_pct": round(100 - eff, 1) if eff is not None else None,
+                "total_wasted_core_hours": round(wasted_core_hours, 1),
+                "avg_alloc_cpus": round(alloc_cs / elapsed_sum, 1) if elapsed_sum > 0 else 0,
+                "avg_used_cpus": round(used_cs / elapsed_sum, 2) if elapsed_sum > 0 else 0,
+            })
+        cpu_summary.sort(key=lambda x: (x['cpu_wasted_pct'] if x['cpu_wasted_pct'] is not None else -1), reverse=True)
+
+    return {"jobs": jobs, "user_summary": user_summary, "cpu_summary": cpu_summary}
 
 
 @app.get("/api/users")
