@@ -48,7 +48,8 @@ def ensure_table(engine):
                 end_time DATETIME,
                 PRIMARY KEY (job_id),
                 INDEX idx_slurm_user (username),
-                INDEX idx_slurm_time (end_time)
+                INDEX idx_slurm_time (end_time),
+                INDEX idx_slurm_start (start_time)
             )
         """))
         # Migrate existing tables: add total_cpu_seconds if missing
@@ -59,6 +60,14 @@ def ensure_table(engine):
         )).scalar()
         if not exists:
             conn.execute(text("ALTER TABLE slurm_jobs ADD COLUMN total_cpu_seconds DOUBLE NOT NULL DEFAULT 0"))
+        # Migrate: add start_time index if missing (speeds the date-range query)
+        has_idx = conn.execute(text(
+            "SELECT COUNT(*) FROM information_schema.statistics "
+            "WHERE table_schema = DATABASE() AND table_name = 'slurm_jobs' "
+            "AND index_name = 'idx_slurm_start'"
+        )).scalar()
+        if not has_idx:
+            conn.execute(text("ALTER TABLE slurm_jobs ADD INDEX idx_slurm_start (start_time)"))
 
 
 def parse_mem(mem_str):

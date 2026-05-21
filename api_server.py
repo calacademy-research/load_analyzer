@@ -579,74 +579,74 @@ async def get_slurm_efficiency(
     """Return Slurm allocation efficiency data for the given date range."""
     start_str, end_str = _parse_dates(start, end)
 
+    ck = _cache_key('slurm-efficiency', start_str, end_str)
+    cached = _cache_get_json(ck)
+    if cached:
+        return _json_response(cached)
+
+    # Aggregate per user in SQL (one row per user) rather than pulling every job row into
+    # pandas - the ~100k-row transfer was the slow part. Efficiency is size-weighted
+    # (sum used / sum requested) so it equals Avg Used / Avg Requested.
     df = _query_df(
-        "SELECT job_id, username, partition_name, alloc_cpus, req_mem_gb, "
-        "max_rss_gb, total_cpu_seconds, elapsed_seconds, state, node_list, submit_time, start_time, end_time "
+        "SELECT username, COUNT(*) AS job_count, "
+        "SUM(max_rss_gb > 0 AND req_mem_gb > 0) AS mem_measured, "
+        "SUM(CASE WHEN max_rss_gb > 0 AND req_mem_gb > 0 THEN req_mem_gb ELSE 0 END) AS mem_req, "
+        "SUM(CASE WHEN max_rss_gb > 0 AND req_mem_gb > 0 THEN max_rss_gb ELSE 0 END) AS mem_used, "
+        "SUM(CASE WHEN max_rss_gb > 0 AND req_mem_gb > 0 "
+        "    THEN GREATEST(0, req_mem_gb - max_rss_gb) * elapsed_seconds / 3600 ELSE 0 END) AS mem_wasted_gbh, "
+        "SUM(total_cpu_seconds > 0 AND alloc_cpus > 0 AND elapsed_seconds > 0) AS cpu_measured, "
+        "SUM(CASE WHEN total_cpu_seconds > 0 AND alloc_cpus > 0 AND elapsed_seconds > 0 "
+        "    THEN alloc_cpus * elapsed_seconds ELSE 0 END) AS cpu_alloc_cs, "
+        "SUM(CASE WHEN total_cpu_seconds > 0 AND alloc_cpus > 0 AND elapsed_seconds > 0 "
+        "    THEN total_cpu_seconds ELSE 0 END) AS cpu_used_cs, "
+        "SUM(CASE WHEN total_cpu_seconds > 0 AND alloc_cpus > 0 AND elapsed_seconds > 0 "
+        "    THEN elapsed_seconds ELSE 0 END) AS cpu_elapsed "
         "FROM slurm_jobs WHERE start_time BETWEEN :start AND :end "
-        "ORDER BY start_time DESC",
+        "AND state IN ('COMPLETED', 'TIMEOUT', 'CANCELLED') GROUP BY username",
         {'start': start_str, 'end': end_str}
     )
 
-    if df.empty:
-        return {"user_summary": [], "cpu_summary": []}
-
-    # Per-user summary - computed only over jobs that have a real MaxRSS reading (has_rss).
-    # Efficiency is size-weighted (sum used / sum requested) so it equals Avg Used / Avg
-    # Requested and is not skewed by many tiny jobs; coverage shows how representative it is.
-    completed = df[df['state'].isin(['COMPLETED', 'TIMEOUT', 'CANCELLED'])]
     user_summary = []
-    if not completed.empty:
-        for user, udf in completed.groupby('username'):
-            has_rss = udf[(udf['max_rss_gb'] > 0) & (udf['req_mem_gb'] > 0)]
-            measured = len(has_rss)
-            if measured == 0:
-                continue
-            total = len(udf)
-            hrs = has_rss['elapsed_seconds'] / 3600.0
-            sum_req = float(has_rss['req_mem_gb'].sum())
-            sum_used = float(has_rss['max_rss_gb'].sum())
-            wasted_gb_hours = float(((has_rss['req_mem_gb'] - has_rss['max_rss_gb']).clip(lower=0) * hrs).sum())
-            eff = round(sum_used / sum_req * 100, 1) if sum_req > 0 else None
-            user_summary.append({
-                "username": user,
-                "job_count": total,
-                "measured_jobs": measured,
-                "coverage_pct": round(measured / total * 100, 1) if total else 0,
-                "avg_mem_efficiency": eff,
-                "wasted_pct": round(100 - eff, 1) if eff is not None else None,
-                "total_wasted_gb_hours": round(wasted_gb_hours, 1),
-                "avg_req_mem_gb": round(sum_req / measured, 1),
-                "avg_max_rss_gb": round(sum_used / measured, 1),
-            })
-        user_summary.sort(key=lambda x: (x['wasted_pct'] if x['wasted_pct'] is not None else -1), reverse=True)
-
-    # Per-user CPU summary - allocated core-time (alloc_cpus * elapsed) vs used (TotalCPU).
     cpu_summary = []
-    if not completed.empty:
-        for user, udf in completed.groupby('username'):
-            has_cpu = udf[(udf['total_cpu_seconds'] > 0) & (udf['alloc_cpus'] > 0) & (udf['elapsed_seconds'] > 0)]
-            measured = len(has_cpu)
-            if measured == 0:
-                continue
-            total = len(udf)
-            alloc_cs = float((has_cpu['alloc_cpus'] * has_cpu['elapsed_seconds']).sum())
-            used_cs = float(has_cpu['total_cpu_seconds'].sum())
-            elapsed_sum = float(has_cpu['elapsed_seconds'].sum())
-            eff = round(used_cs / alloc_cs * 100, 1) if alloc_cs > 0 else None
-            wasted_core_hours = max(0.0, alloc_cs - used_cs) / 3600.0
-            cpu_summary.append({
-                "username": user,
-                "job_count": total,
-                "measured_jobs": measured,
-                "coverage_pct": round(measured / total * 100, 1) if total else 0,
-                "cpu_wasted_pct": round(100 - eff, 1) if eff is not None else None,
-                "total_wasted_core_hours": round(wasted_core_hours, 1),
-                "avg_alloc_cpus": round(alloc_cs / elapsed_sum, 1) if elapsed_sum > 0 else 0,
-                "avg_used_cpus": round(used_cs / elapsed_sum, 2) if elapsed_sum > 0 else 0,
+    for _, r in df.iterrows():
+        jc = int(r['job_count'])
+        mm = int(r['mem_measured'])
+        sum_req = float(r['mem_req'])
+        if mm > 0 and sum_req > 0:
+            sum_used = float(r['mem_used'])
+            eff = round(sum_used / sum_req * 100, 1)
+            user_summary.append({
+                "username": r['username'],
+                "job_count": jc,
+                "measured_jobs": mm,
+                "coverage_pct": round(mm / jc * 100, 1) if jc else 0,
+                "avg_mem_efficiency": eff,
+                "wasted_pct": round(100 - eff, 1),
+                "total_wasted_gb_hours": round(float(r['mem_wasted_gbh']), 1),
+                "avg_req_mem_gb": round(sum_req / mm, 1),
+                "avg_max_rss_gb": round(sum_used / mm, 1),
             })
-        cpu_summary.sort(key=lambda x: (x['cpu_wasted_pct'] if x['cpu_wasted_pct'] is not None else -1), reverse=True)
+        cm = int(r['cpu_measured'])
+        alloc_cs = float(r['cpu_alloc_cs'])
+        cpu_elapsed = float(r['cpu_elapsed'])
+        if cm > 0 and alloc_cs > 0 and cpu_elapsed > 0:
+            used_cs = float(r['cpu_used_cs'])
+            ceff = round(used_cs / alloc_cs * 100, 1)
+            cpu_summary.append({
+                "username": r['username'],
+                "job_count": jc,
+                "measured_jobs": cm,
+                "coverage_pct": round(cm / jc * 100, 1) if jc else 0,
+                "cpu_wasted_pct": round(100 - ceff, 1),
+                "total_wasted_core_hours": round(max(0.0, alloc_cs - used_cs) / 3600, 1),
+                "avg_alloc_cpus": round(alloc_cs / cpu_elapsed, 1),
+                "avg_used_cpus": round(used_cs / cpu_elapsed, 2),
+            })
+    user_summary.sort(key=lambda x: x['wasted_pct'], reverse=True)
+    cpu_summary.sort(key=lambda x: x['cpu_wasted_pct'], reverse=True)
 
-    return {"user_summary": user_summary, "cpu_summary": cpu_summary}
+    result = {"user_summary": user_summary, "cpu_summary": cpu_summary}
+    return _json_response(_cache_set_json(ck, result))
 
 
 @app.get("/api/users")
