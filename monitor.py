@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
+import json
 import mysql.connector
 import subprocess
 import signal
 import sys
 import time
 import os
+
+
+SSH_KEY = "/app/monitor_key"
+SSH_USER = "loadmon"
+HOSTS_CONFIG = "/app/monitor_hosts.json"
 
 
 def ssh_with_timeout(cmd, timeout_secs=30):
@@ -73,9 +79,15 @@ db = DbUtils(
     'load',
 )
 
-HOSTS = ['rosalindf', 'alice', 'tdobz', 'flor', 'ibss-spark-1',
-         'blackburn', 'deepsquid', 'deepsheep', 'rudra', 'kali', 'dirac']
-GPU_HOSTS = ['alice', 'ibss-spark-1', 'deepsquid', 'deepsheep']
+with open(HOSTS_CONFIG) as f:
+    _hosts_cfg = json.load(f)
+HOSTS = _hosts_cfg['hosts']
+GPU_HOSTS = _hosts_cfg.get('gpu_hosts', [])
+print(f"Loaded {len(HOSTS)} hosts, {len(GPU_HOSTS)} GPU hosts from {HOSTS_CONFIG}", flush=True)
+
+SSH_OPTS = ["-i", SSH_KEY, "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5",
+            "-o", "ServerAliveCountMax=3"]
 
 ps_arg_tuples = [
     ('pid', 'process ID'),
@@ -98,7 +110,6 @@ for arg_tuple in ps_arg_tuples:
     ps_args += arg_tuple[0]
 
 COMMAND = f"ps  -e {ps_args}"
-GPU_COMMAND = "nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits && echo '---GPU_PROCS---' && nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null && echo '---PS_DATA---' && ps -eo pid,user --no-headers"
 
 exclude_processes = ['bash', 'sshd', '(sd-pam)', 'screen', 'systemd']
 
@@ -157,6 +168,7 @@ exclude_users = [
     'rstudio-server',
     'rtkit',
     'munge',
+    'loadmon',
 ]
 
 sql = """create table if not exists processes (
@@ -216,12 +228,11 @@ while True:
     datetime_time = time.strftime('%Y-%m-%d %H:%M:%S')
     for host in HOSTS:
         print(f"Checking host {host}", flush=True)
-        ssh = subprocess.Popen(["ssh", "-i", "/root/.ssh/id_rsa", "-o", "StrictHostKeyChecking=no", f"admin@{host}", COMMAND],
+        ssh = subprocess.Popen(["ssh"] + SSH_OPTS + [f"{SSH_USER}@{host}", COMMAND],
                                shell=False,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
-        cmd = ["ssh", "-i", "/root/.ssh/id_rsa", "-o", "StrictHostKeyChecking=no", f"admin@{host}", COMMAND]
-        print(f"command: {' '.join(cmd)}")
+        print(f"command: ssh {SSH_USER}@{host} {COMMAND[:80]}...")
         result = ssh.stdout.readlines()
         ssh.wait()  # reap child process to prevent zombies
         if result == []:
@@ -257,21 +268,24 @@ while True:
         pss_map = {}
         if filtered_rows:
             pids = [row[0] for row in filtered_rows]
-            pids_str = ' '.join(pids)
-            pss_cmd = f"for pid in {pids_str}; do pss=$(awk '/^Pss:/{{s+=$2}} END{{print s+0}}' /proc/$pid/smaps_rollup 2>/dev/null); echo \"$pid|$pss\"; done"
+            pss_cmd = "sudo /usr/local/bin/read-pss.sh " + " ".join(pids)
             pss_ssh = subprocess.Popen(
-                ["ssh", "-i", "/root/.ssh/id_rsa", "-o", "StrictHostKeyChecking=no",
-                 f"admin@{host}", f"sudo sh -c '{pss_cmd}'"],
+                ["ssh"] + SSH_OPTS + [f"{SSH_USER}@{host}", pss_cmd],
                 shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             pss_result = pss_ssh.stdout.readlines()
             pss_ssh.wait()
             for pss_line in pss_result:
-                parts = pss_line.strip().decode("utf-8").split('|')
+                line_str = pss_line.strip().decode("utf-8")
+                parts = line_str.split('|')
                 if len(parts) == 2:
                     try:
                         pss_map[parts[0]] = int(float(parts[1]))
                     except (ValueError, TypeError):
                         pass
+            if pss_map:
+                print(f"  PSS collected for {len(pss_map)} PIDs on {host}", flush=True)
+            else:
+                print(f"  PSS collection failed on {host}", flush=True)
 
         # Insert rows with PSS data
         for sarray in filtered_rows:
@@ -288,8 +302,8 @@ while True:
                     args.append(intelem)
                 except Exception:
                     args.append(element)
-            # Insert PSS after rss (index 5 in the values)
-            args.insert(5, pss_kb)
+            # Insert PSS after rss — rss is at index 5, so PSS goes at index 6
+            args.insert(6, pss_kb)
             args.append(epoch_time)
             args.append(datetime_time)
 
@@ -304,9 +318,7 @@ while True:
     for host in GPU_HOSTS:
         print(f"Checking GPU on {host}", flush=True)
         try:
-            ssh_cmd = ["ssh", "-i", "/root/.ssh/id_rsa", "-o", "StrictHostKeyChecking=no",
-                       "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5",
-                       "-o", "ServerAliveCountMax=3", f"admin@{host}", GPU_COMMAND]
+            ssh_cmd = ["ssh"] + SSH_OPTS + [f"{SSH_USER}@{host}", "/usr/local/bin/gpu-monitor.sh"]
             stdout, stderr, rc = ssh_with_timeout(ssh_cmd, timeout_secs=30)
             if stdout is None:
                 sys.stderr.write(f"GPU collection timed out for {host}\n")

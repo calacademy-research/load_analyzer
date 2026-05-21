@@ -1,0 +1,10 @@
+data/**/*
+data/*
+data.broken
+data.restored
+load_analyzer_data
+node_modules
+logs
+__pycache__
+*.pyc
+.git

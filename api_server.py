@@ -639,6 +639,196 @@ async def get_slurm_efficiency(
     return {"jobs": jobs, "user_summary": user_summary}
 
 
+@app.get("/api/users")
+async def get_users():
+    """Return distinct usernames from the processes table."""
+    ck = _cache_key('users', 'all', 'all')
+    cached = _cache_get_json(ck)
+    if cached:
+        return _json_response(cached)
+
+    df = _query_df(
+        "SELECT DISTINCT username FROM load_summary ORDER BY username",
+        {}
+    )
+    usernames = df['username'].tolist() if not df.empty else []
+    response = {"users": usernames}
+    return _json_response(_cache_set_json(ck, response))
+
+
+@app.get("/api/user-processes")
+async def get_user_processes(
+    user: str = Query("all"),
+    host: str = Query("all"),
+    window: str = Query("active"),
+):
+    """Return list of processes for a given user (or all users), with summary stats."""
+    ck = _cache_key(f'user-processes:{user}:{host}', window, '')
+    cached = _cache_get_json(ck)
+    if cached:
+        return _json_response(cached)
+
+    now = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles'))
+
+    if window == "active":
+        cutoff = now - datetime.timedelta(minutes=10)
+    elif window == "24h":
+        cutoff = now - datetime.timedelta(hours=24)
+    elif window == "7d":
+        cutoff = now - datetime.timedelta(days=7)
+    elif window == "30d":
+        cutoff = now - datetime.timedelta(days=30)
+    elif window == "90d":
+        cutoff = now - datetime.timedelta(days=90)
+    elif window == "all":
+        cutoff = datetime.datetime(2020, 1, 1, tzinfo=ZoneInfo('America/Los_Angeles'))
+    else:
+        return {"processes": [], "error": f"Unknown window: {window}"}
+
+    cutoff_str = cutoff.strftime('%Y-%m-%d %H:%M:%S')
+    params = {'cutoff': cutoff_str}
+
+    user_filter = ""
+    if user != "all":
+        user_filter = " AND username = :user"
+        params['user'] = user
+
+    host_filter = ""
+    if host != "all":
+        host_filter = " AND host = :host"
+        params['host'] = host
+
+    sql = (
+        "SELECT host, pid, username, comm, "
+        "MAX(args) AS args, "
+        "MAX(rss) AS peak_rss, "
+        "MAX(pss) AS peak_pss, "
+        "MAX(cputimes) AS max_cputimes, "
+        "MAX(thcount) AS max_thcount, "
+        "MIN(snapshot_datetime) AS first_seen, "
+        "MAX(snapshot_datetime) AS last_seen, "
+        "MAX(etimes) AS etimes, "
+        "COUNT(*) AS snapshot_count "
+        "FROM processes "
+        f"WHERE snapshot_datetime >= :cutoff{user_filter}{host_filter} "
+        "GROUP BY host, pid, username, comm "
+        "ORDER BY GREATEST(MAX(rss), MAX(pss)) DESC "
+        "LIMIT 500"
+    )
+
+    df = _query_df(sql, params)
+
+    if df.empty:
+        return _json_response(_cache_set_json(ck, {"processes": []}))
+
+    processes = []
+    for _, row in df.iterrows():
+        processes.append({
+            "host": row['host'],
+            "pid": int(row['pid']),
+            "username": row['username'],
+            "comm": row['comm'],
+            "args": row['args'] if row['args'] else row['comm'],
+            "peak_mem_gb": round((float(row["peak_pss"]) if float(row["peak_pss"]) > 0 else float(row["peak_rss"])) / 1024 / 1024, 2),
+            "cpu_seconds": int(row['max_cputimes']),
+            "threads": int(row['max_thcount']),
+            "first_seen": str(row['first_seen']),
+            "last_seen": str(row['last_seen']),
+            "runtime_hours": round(float(row['etimes']) / 3600, 1),
+            "snapshot_count": int(row['snapshot_count']),
+        })
+
+    response = {"processes": processes}
+    return _json_response(_cache_set_json(ck, response))
+
+
+@app.get("/api/process-history")
+async def get_process_history(
+    host: str = Query(...),
+    pid: int = Query(...),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+):
+    """Return time-series data for a specific process (host, pid)."""
+    if start:
+        start_dt = datetime.datetime.strptime(start, '%Y-%m-%d')
+    else:
+        start_dt = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) - datetime.timedelta(days=7)
+    if end:
+        end_dt = datetime.datetime.strptime(end, '%Y-%m-%d') + datetime.timedelta(days=1)
+    else:
+        end_dt = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles')) + datetime.timedelta(days=1)
+
+    start_str = start_dt.strftime('%Y-%m-%d %H:%M:%S')
+    end_str = end_dt.strftime('%Y-%m-%d %H:%M:%S')
+
+    ck = _cache_key(f'process-history:{host}:{pid}', start_str, end_str)
+    cached = _cache_get_json(ck)
+    if cached:
+        return _json_response(cached)
+
+    df = _query_df(
+        "SELECT comm, cputimes, rss, pss, vsz, thcount, etimes, ppid, args, "
+        "snapshot_time_epoch, snapshot_datetime "
+        "FROM processes "
+        "WHERE host = :host AND pid = :pid "
+        "AND snapshot_datetime BETWEEN :start AND :end "
+        "ORDER BY snapshot_datetime",
+        {'host': host, 'pid': pid, 'start': start_str, 'end': end_str}
+    )
+
+    empty_response = {
+        "timestamps": [], "cpu_cores": [], "mem_gb": [], "threads": [],
+        "comm": "", "args": "", "ppid": 0, "peak_mem_gb": 0,
+        "total_cpu_seconds": 0, "first_seen": "", "last_seen": "", "segments": 0,
+    }
+
+    if df.empty:
+        return _json_response(_cache_set_json(ck, empty_response))
+
+    df = df.sort_values('snapshot_datetime').reset_index(drop=True)
+
+    # PID reuse detection: if cputimes decreases, it's a new process instance
+    df['cpu_delta'] = df['cputimes'].diff()
+    df['time_delta'] = df['snapshot_time_epoch'].diff()
+
+    reuse_points = df.index[df['cpu_delta'] < 0].tolist()
+    num_segments = len(reuse_points) + 1
+
+    if reuse_points:
+        # Keep only the most recent continuous segment
+        last_reuse = reuse_points[-1]
+        df = df.loc[last_reuse:].copy()
+        df['cpu_delta'] = df['cputimes'].diff()
+        df['time_delta'] = df['snapshot_time_epoch'].diff()
+
+    # Compute CPU cores used (rate of CPU time consumption)
+    df['cpu_cores'] = (df['cpu_delta'] / df['time_delta']).clip(lower=0, upper=300)
+    df['cpu_cores'] = df['cpu_cores'].fillna(0)
+    df['mem_kb'] = df['pss'].where(df['pss'] > 0, df['rss'])
+    df['mem_gb'] = df['mem_kb'] / 1024 / 1024
+
+    df = df.replace([np.inf, -np.inf], 0).fillna(0)
+
+    last_row = df.iloc[-1]
+
+    response = {
+        "timestamps": df['snapshot_datetime'].dt.strftime('%Y-%m-%dT%H:%M:%S').tolist(),
+        "cpu_cores": df['cpu_cores'].round(3).tolist(),
+        "mem_gb": df['mem_gb'].round(3).tolist(),
+        "threads": df['thcount'].astype(int).tolist(),
+        "comm": str(last_row['comm']),
+        "args": str(last_row['args']),
+        "ppid": int(last_row['ppid']),
+        "peak_mem_gb": round(float(df['mem_gb'].max()), 2),
+        "total_cpu_seconds": int(last_row['cputimes']),
+        "first_seen": str(df.iloc[0]['snapshot_datetime']),
+        "last_seen": str(last_row['snapshot_datetime']),
+        "segments": num_segments,
+    }
+    return _json_response(_cache_set_json(ck, response))
+
+
 @app.on_event("startup")
 async def warm_cache():
     """Pre-populate cache for the default date range so first page load is fast."""

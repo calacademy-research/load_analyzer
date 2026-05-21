@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import DateRangePicker from './components/DateRangePicker';
 import OverviewTab from './components/OverviewTab';
 import AnalyticsTab from './components/AnalyticsTab';
+import MyProcessesTab from './components/MyProcessesTab';
 
 const styles = {
   app: { fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', padding: '10px' },
@@ -55,6 +56,12 @@ function App() {
           Overview
         </div>
         <div
+          style={activeTab === 'processes' ? styles.activeTab : styles.tab}
+          onClick={() => setActiveTab('processes')}
+        >
+          Processes
+        </div>
+        <div
           style={activeTab === 'analytics' ? styles.activeTab : styles.tab}
           onClick={() => setActiveTab('analytics')}
         >
@@ -62,6 +69,7 @@ function App() {
         </div>
       </div>
       {activeTab === 'overview' && <OverviewTab startDate={startDate} endDate={endDate} />}
+      {activeTab === 'processes' && <MyProcessesTab />}
       {activeTab === 'analytics' && <AnalyticsTab />}
     </div>
   );
