@@ -635,17 +635,12 @@ async def get_slurm_efficiency(
                 "measured_jobs": measured,
                 "coverage_pct": round(measured / total * 100, 1) if total else 0,
                 "avg_mem_efficiency": eff,
+                "wasted_pct": round(100 - eff, 1) if eff is not None else None,
                 "total_wasted_gb_hours": round(wasted_gb_hours, 1),
                 "avg_req_mem_gb": round(sum_req / measured, 1),
                 "avg_max_rss_gb": round(sum_used / measured, 1),
             })
-        user_summary.sort(key=lambda x: x['total_wasted_gb_hours'], reverse=True)
-        grand_total_waste = sum(u['total_wasted_gb_hours'] for u in user_summary)
-        for u in user_summary:
-            u['waste_share_pct'] = (
-                round(u['total_wasted_gb_hours'] / grand_total_waste * 100, 1)
-                if grand_total_waste > 0 else 0
-            )
+        user_summary.sort(key=lambda x: (x['wasted_pct'] if x['wasted_pct'] is not None else -1), reverse=True)
 
     return {"jobs": jobs, "user_summary": user_summary}
 
