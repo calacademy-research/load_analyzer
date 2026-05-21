@@ -839,6 +839,16 @@ async def warm_cache():
 
 
 # Serve React frontend (must be mounted AFTER API routes)
+class CachedStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        ctype = response.headers.get("content-type", "")
+        if ctype.startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache"
+        elif path.startswith("assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
 frontend_dist = os.path.join(os.path.dirname(__file__), 'frontend', 'dist')
 if os.path.isdir(frontend_dist):
-    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+    app.mount("/", CachedStaticFiles(directory=frontend_dist, html=True), name="frontend")
