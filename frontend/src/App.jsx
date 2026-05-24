@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import DateRangePicker from './components/DateRangePicker';
 import OverviewTab from './components/OverviewTab';
+import CapacityTab from './components/CapacityTab';
 import AnalyticsTab from './components/AnalyticsTab';
 import MyProcessesTab from './components/MyProcessesTab';
 
@@ -56,6 +57,12 @@ function App() {
           Overview
         </div>
         <div
+          style={activeTab === 'capacity' ? styles.activeTab : styles.tab}
+          onClick={() => setActiveTab('capacity')}
+        >
+          Capacity
+        </div>
+        <div
           style={activeTab === 'processes' ? styles.activeTab : styles.tab}
           onClick={() => setActiveTab('processes')}
         >
@@ -69,6 +76,7 @@ function App() {
         </div>
       </div>
       {activeTab === 'overview' && <OverviewTab startDate={startDate} endDate={endDate} />}
+      {activeTab === 'capacity' && <CapacityTab />}
       {activeTab === 'processes' && <MyProcessesTab />}
       {activeTab === 'analytics' && <AnalyticsTab />}
     </div>

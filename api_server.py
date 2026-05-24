@@ -833,6 +833,15 @@ async def get_process_history(
     return _json_response(_cache_set_json(ck, response))
 
 
+@app.get("/api/slurm-capacity")
+async def get_slurm_capacity():
+    """Live cluster capacity + per-user quota usage (slurm_live_snapshot, refreshed each minute by cron)."""
+    df = _query_df("SELECT v FROM slurm_live_snapshot WHERE k = 'snapshot'", {})
+    if df.empty:
+        return _json_response(json.dumps({"cluster": None, "users": [], "updated_at": None}).encode())
+    return _json_response(df.iloc[0]["v"].encode())
+
+
 @app.on_event("startup")
 async def warm_cache():
     """Pre-populate cache for the default date range so first page load is fast."""
