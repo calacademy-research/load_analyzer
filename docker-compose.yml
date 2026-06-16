@@ -30,6 +30,7 @@ services:
      - "rudra:10.4.90.132"
      - "kali:10.4.90.203"
      - "dirac:10.4.90.100"
+     - "antman:10.4.90.180"
     networks:
       - python
 
