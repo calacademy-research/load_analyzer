@@ -96,9 +96,16 @@ export default function MyProcessesTab() {
   const [timelines, setTimelines] = useState({});
   const [timelineLoading, setTimelineLoading] = useState(new Set());
 
+  // Draft inputs — the user edits these, but they only hit the server once
+  // committed (Search button / Enter) into the applied* values below.
   const [searchTerm, setSearchTerm] = useState('');
   const [startAfter, setStartAfter] = useState('');
   const [startBefore, setStartBefore] = useState('');
+
+  // Applied (committed) query values — these are what the fetch actually sends.
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [appliedStart, setAppliedStart] = useState('');
+  const [appliedEnd, setAppliedEnd] = useState('');
 
   const [sortCol, setSortCol] = useState('peak_mem_gb');
   const [sortDir, setSortDir] = useState('desc');
@@ -129,6 +136,9 @@ export default function MyProcessesTab() {
       host: selectedHost,
       window: timeWindow,
     });
+    if (appliedSearch) params.set('search', appliedSearch);
+    if (appliedStart) params.set('start', appliedStart);
+    if (appliedEnd) params.set('end', appliedEnd);
 
     fetch(`/api/user-processes?${params}`, { signal: controller.signal })
       .then((r) => r.json())
@@ -138,9 +148,6 @@ export default function MyProcessesTab() {
         setCheckedKeys(new Set());
         setTimelines({});
         setActiveProcess(null);
-        setSearchTerm('');
-        setStartAfter('');
-        setStartBefore('');
       })
       .catch((err) => {
         if (err.name !== 'AbortError') {
@@ -150,7 +157,23 @@ export default function MyProcessesTab() {
       });
 
     return () => controller.abort();
-  }, [selectedUser, selectedHost, timeWindow]);
+  }, [selectedUser, selectedHost, timeWindow, appliedSearch, appliedStart, appliedEnd]);
+
+  // Commit the draft search box + date range to the server query.
+  const applyQuery = useCallback(() => {
+    setAppliedSearch(searchTerm.trim());
+    setAppliedStart(startAfter);
+    setAppliedEnd(startBefore);
+  }, [searchTerm, startAfter, startBefore]);
+
+  const clearQuery = useCallback(() => {
+    setSearchTerm('');
+    setStartAfter('');
+    setStartBefore('');
+    setAppliedSearch('');
+    setAppliedStart('');
+    setAppliedEnd('');
+  }, []);
 
   const fetchTimeline = useCallback((host, pid) => {
     const key = `${host}:${pid}`;
@@ -216,28 +239,10 @@ export default function MyProcessesTab() {
   };
   const arrow = (col) => (col === sortCol ? (sortDir === 'asc' ? ' \u25B2' : ' \u25BC') : '');
 
-  const filteredProcesses = useMemo(() => {
-    let result = processes;
-    if (searchTerm) {
-      const terms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
-      result = result.filter((p) => {
-        const haystack = `${p.comm} ${p.args} ${p.host} ${p.pid} ${p.username || ''}`.toLowerCase();
-        return terms.every((t) => haystack.includes(t));
-      });
-    }
-    if (startAfter) {
-      const after = new Date(startAfter + 'T00:00:00');
-      result = result.filter((p) => new Date(p.first_seen) >= after);
-    }
-    if (startBefore) {
-      const before = new Date(startBefore + 'T23:59:59');
-      result = result.filter((p) => new Date(p.first_seen) <= before);
-    }
-    return result;
-  }, [processes, searchTerm, startAfter, startBefore]);
-
+  // Search and date filtering now happen server-side (see applyQuery), so the
+  // client just sorts whatever the server returned.
   const sortedProcesses = useMemo(() => {
-    return [...filteredProcesses].sort((a, b) => {
+    return [...processes].sort((a, b) => {
       const av = a[sortCol];
       const bv = b[sortCol];
       if (typeof av === 'string') {
@@ -245,7 +250,7 @@ export default function MyProcessesTab() {
       }
       return sortDir === 'asc' ? av - bv : bv - av;
     });
-  }, [filteredProcesses, sortCol, sortDir]);
+  }, [processes, sortCol, sortDir]);
 
   // Build chart traces
   const { cpuTraces, memTraces } = useMemo(() => {
@@ -361,7 +366,15 @@ export default function MyProcessesTab() {
             <button
               key={val}
               style={windowButton(timeWindow === val)}
-              onClick={() => setTimeWindow(val)}
+              onClick={() => {
+                // A preset window and an explicit date range are mutually
+                // exclusive — picking a preset drops the date range.
+                setTimeWindow(val);
+                setStartAfter('');
+                setStartBefore('');
+                setAppliedStart('');
+                setAppliedEnd('');
+              }}
             >
               {label}
             </button>
@@ -374,7 +387,10 @@ export default function MyProcessesTab() {
         {!processLoading && (
           <span style={{ fontSize: '13px', color: '#666' }}>
             {processes.length} process{processes.length !== 1 ? 'es' : ''}
-            {(searchTerm || startAfter || startBefore) && ` (${sortedProcesses.length} shown)`}
+            {(appliedSearch || appliedStart || appliedEnd) && ' matching'}
+            {processes.length >= 500 && (
+              <span style={{ color: '#c0392b' }}> (capped at 500 — narrow your search)</span>
+            )}
           </span>
         )}
       </div>
@@ -393,32 +409,41 @@ export default function MyProcessesTab() {
             <div style={{ padding: '8px', borderBottom: '1px solid #eee', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
               <input
                 type="text"
-                placeholder="Filter by command, args, host, PID, user..."
+                placeholder="Search all runs by command, args, host, user... then click Search"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') applyQuery(); }}
                 style={{
                   width: '100%', padding: '6px 10px', fontSize: '13px',
                   border: '1px solid #ccc', borderRadius: '4px',
                   boxSizing: 'border-box',
                 }}
               />
-              <div style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center', fontSize: '12px', color: '#555' }}>
+              <div style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center', fontSize: '12px', color: '#555', flexWrap: 'wrap' }}>
                 <span>Started:</span>
                 <input type="date" value={startAfter} onChange={(e) => setStartAfter(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyQuery(); }}
                   style={{ fontSize: '12px', padding: '3px 4px', border: '1px solid #ccc', borderRadius: '3px' }} />
                 <span>to</span>
                 <input type="date" value={startBefore} onChange={(e) => setStartBefore(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyQuery(); }}
                   style={{ fontSize: '12px', padding: '3px 4px', border: '1px solid #ccc', borderRadius: '3px' }} />
-                {(startAfter || startBefore) && (
-                  <button onClick={() => { setStartAfter(''); setStartBefore(''); }}
+                <button onClick={applyQuery}
+                  style={{ fontSize: '12px', fontWeight: 'bold', padding: '3px 12px', cursor: 'pointer', border: '1px solid #4A90D9', borderRadius: '3px', background: '#e8f0fe', color: '#1a5fb4' }}>
+                  Search
+                </button>
+                {(searchTerm || startAfter || startBefore || appliedSearch || appliedStart || appliedEnd) && (
+                  <button onClick={clearQuery}
                     style={{ fontSize: '11px', padding: '2px 6px', cursor: 'pointer', border: '1px solid #ccc', borderRadius: '3px', background: '#fff' }}>
                     Clear
                   </button>
                 )}
               </div>
-              {(searchTerm || startAfter || startBefore) && (
+              {(appliedSearch || appliedStart || appliedEnd) && (
                 <div style={{ fontSize: '11px', color: '#888', marginTop: '3px' }}>
-                  {sortedProcesses.length} of {processes.length} shown
+                  Showing {sortedProcesses.length} result{sortedProcesses.length !== 1 ? 's' : ''}
+                  {appliedSearch && ` for "${appliedSearch}"`}
+                  {(appliedStart || appliedEnd) && ` (started ${appliedStart || '…'} to ${appliedEnd || '…'})`}
                 </div>
               )}
             </div>

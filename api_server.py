@@ -83,6 +83,8 @@ SERVERS = [
     ('kali', 128, 500),
     ('deepsquid', 64, 250),
     ('deepsheep', 32, 188),
+    # ant_compute_servers (owner-managed, no NFS)
+    ('antman', 16, 995),
 ]
 GPU_HOSTS = ['alice', 'ibss-spark-1', 'deepsquid', 'deepsheep']
 
@@ -671,32 +673,53 @@ async def get_user_processes(
     user: str = Query("all"),
     host: str = Query("all"),
     window: str = Query("active"),
+    search: str = Query(""),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
 ):
-    """Return list of processes for a given user (or all users), with summary stats."""
-    ck = _cache_key(f'user-processes:{user}:{host}', window, '')
+    """Return list of processes for a given user (or all users), with summary stats.
+
+    search: space-separated terms; each must match comm/args/host/username.
+    start/end: explicit 'Started' (first_seen) date range (YYYY-MM-DD). When
+    either is given it replaces the preset `window` time filter. Search and the
+    date range are applied server-side so results are not limited to the top-500
+    biggest-memory processes of the window (the LIMIT 500 becomes the 500 biggest
+    *matching* runs)."""
+    ck = _cache_key(f'user-processes:{user}:{host}:{search}:{start}:{end}', window, '')
     cached = _cache_get_json(ck)
     if cached:
         return _json_response(cached)
 
     now = datetime.datetime.now(tz=ZoneInfo('America/Los_Angeles'))
+    params = {}
 
-    if window == "active":
-        cutoff = now - datetime.timedelta(minutes=10)
-    elif window == "24h":
-        cutoff = now - datetime.timedelta(hours=24)
-    elif window == "7d":
-        cutoff = now - datetime.timedelta(days=7)
-    elif window == "30d":
-        cutoff = now - datetime.timedelta(days=30)
-    elif window == "90d":
-        cutoff = now - datetime.timedelta(days=90)
-    elif window == "all":
-        cutoff = datetime.datetime(2020, 1, 1, tzinfo=ZoneInfo('America/Los_Angeles'))
+    if start or end:
+        # Explicit date range on first_seen ("Started"). Overrides window.
+        time_filter = ""
+        if start:
+            params['start'] = datetime.datetime.strptime(start, '%Y-%m-%d').strftime('%Y-%m-%d %H:%M:%S')
+            time_filter += " AND first_seen >= :start"
+        if end:
+            end_excl = datetime.datetime.strptime(end, '%Y-%m-%d') + datetime.timedelta(days=1)
+            params['end'] = end_excl.strftime('%Y-%m-%d %H:%M:%S')
+            time_filter += " AND first_seen < :end"
     else:
-        return {"processes": [], "error": f"Unknown window: {window}"}
-
-    cutoff_str = cutoff.strftime('%Y-%m-%d %H:%M:%S')
-    params = {'cutoff': cutoff_str}
+        if window == "active":
+            cutoff = now - datetime.timedelta(minutes=10)
+        elif window == "24h":
+            cutoff = now - datetime.timedelta(hours=24)
+        elif window == "7d":
+            cutoff = now - datetime.timedelta(days=7)
+        elif window == "30d":
+            cutoff = now - datetime.timedelta(days=30)
+        elif window == "90d":
+            cutoff = now - datetime.timedelta(days=90)
+        elif window == "all":
+            cutoff = datetime.datetime(2020, 1, 1, tzinfo=ZoneInfo('America/Los_Angeles'))
+        else:
+            return {"processes": [], "error": f"Unknown window: {window}"}
+        params['cutoff'] = cutoff.strftime('%Y-%m-%d %H:%M:%S')
+        time_filter = " AND last_seen >= :cutoff"
 
     user_filter = ""
     if user != "all":
@@ -708,6 +731,18 @@ async def get_user_processes(
         host_filter = " AND host = :host"
         params['host'] = host
 
+    # Free-text search: every whitespace-separated term must appear in one of
+    # comm/args/host/username. Runs server-side so a specific program surfaces
+    # even when it is not among the top-500 biggest-memory processes overall.
+    search_filter = ""
+    for i, term in enumerate([t for t in search.split() if t][:6]):
+        key = f"q{i}"
+        params[key] = f"%{term}%"
+        search_filter += (
+            f" AND (comm LIKE :{key} OR args LIKE :{key} "
+            f"OR host LIKE :{key} OR username LIKE :{key})"
+        )
+
     # Read from the pre-aggregated process_summary table (maintained by
     # process_data_job) instead of GROUP BY over the 200M+ row processes table.
     sql = (
@@ -715,7 +750,7 @@ async def get_user_processes(
         "max_cputimes, max_thcount, max_etimes AS etimes, "
         "first_seen, last_seen, snapshot_count "
         "FROM process_summary "
-        f"WHERE last_seen >= :cutoff{user_filter}{host_filter} "
+        f"WHERE 1=1{time_filter}{user_filter}{host_filter}{search_filter} "
         "ORDER BY peak_mem DESC "
         "LIMIT 500"
     )
