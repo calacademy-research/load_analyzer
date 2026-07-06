@@ -175,7 +175,7 @@ export default function MyProcessesTab() {
     setAppliedEnd('');
   }, []);
 
-  const fetchTimeline = useCallback((host, pid) => {
+  const fetchTimeline = useCallback((host, pid, firstSeen, lastSeen) => {
     const key = `${host}:${pid}`;
 
     timelineAborts.current[key]?.abort();
@@ -184,7 +184,12 @@ export default function MyProcessesTab() {
 
     setTimelineLoading((prev) => new Set([...prev, key]));
 
+    // Pass the run's own date range so process-history covers it — without
+    // this it defaults to the last 7 days and historical runs come back empty
+    // (blank chart + Peak Memory shown as 0).
     const params = new URLSearchParams({ host, pid: String(pid) });
+    if (firstSeen) params.set('start', firstSeen.slice(0, 10));
+    if (lastSeen) params.set('end', lastSeen.slice(0, 10));
 
     fetch(`/api/process-history?${params}`, { signal: controller.signal })
       .then((r) => r.json())
@@ -208,7 +213,7 @@ export default function MyProcessesTab() {
   }, []);
 
   const selectProcess = useCallback(
-    (host, pid) => {
+    (host, pid, firstSeen, lastSeen) => {
       const key = `${host}:${pid}`;
       setCheckedKeys((prev) => {
         // If already selected, deselect
@@ -222,7 +227,7 @@ export default function MyProcessesTab() {
         }
         // Replace previous selection with this one
         setTimelines({});
-        fetchTimeline(host, pid);
+        fetchTimeline(host, pid, firstSeen, lastSeen);
         return new Set([key]);
       });
     },
@@ -495,7 +500,7 @@ export default function MyProcessesTab() {
                       }}
                       onClick={() => {
                         setActiveProcess(proc);
-                        selectProcess(proc.host, proc.pid);
+                        selectProcess(proc.host, proc.pid, proc.first_seen, proc.last_seen);
                       }}
                     >
                       <td style={styles.td}>
@@ -503,7 +508,7 @@ export default function MyProcessesTab() {
                           type="radio"
                           name="process-select"
                           checked={isChecked}
-                          onChange={() => selectProcess(proc.host, proc.pid)}
+                          onChange={() => selectProcess(proc.host, proc.pid, proc.first_seen, proc.last_seen)}
                           onClick={(e) => e.stopPropagation()}
                           style={{ cursor: 'pointer' }}
                         />
