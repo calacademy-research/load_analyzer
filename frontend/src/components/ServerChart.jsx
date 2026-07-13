@@ -120,8 +120,11 @@ export default function ServerChart({ server }) {
   const layout = {
     title: `CPU and memory usage on ${hostname}`,
     xaxis: { title: 'Time' },
-    yaxis: { title: 'CPU usage', rangemode: 'tozero', side: 'left' },
-    yaxis2: { title: 'Memory usage', rangemode: 'tozero', side: 'right', overlaying: 'y' },
+    // Absolute scaling: axes default to the machine's full spec so charts are
+    // comparable and headroom is visible (zoom still works; spikes above the
+    // spec clip but hover shows the real value).
+    yaxis: { title: 'CPU usage', rangemode: 'tozero', side: 'left', range: [0, cpu_limit] },
+    yaxis2: { title: 'Memory usage', rangemode: 'tozero', side: 'right', overlaying: 'y', range: [0, mem_limit] },
     uirevision: 'preserve UI state during updates',
     margin: { t: 40, b: 40, l: 60, r: 60 },
     height: 350,
