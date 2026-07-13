@@ -4,7 +4,8 @@ export default function ServerChart({ server }) {
   const { hostname, cpu_limit, mem_limit, cpu, mem, gpu, slurm } = server;
   const traces = [];
 
-  // Slurm allocation traces (purple, pushed first so usage lines draw on top).
+  // Slurm allocation traces (dashed, colored to match their usage lines:
+  // red = memory, blue = CPU; pushed first so usage lines draw on top).
   // Only Slurm nodes have this data; allocation persists on draining nodes.
   if (slurm) {
     traces.push({
@@ -14,7 +15,7 @@ export default function ServerChart({ server }) {
       mode: 'lines',
       name: 'Slurm mem alloc',
       yaxis: 'y2',
-      line: { color: 'purple', width: 3, dash: 'dash' },
+      line: { color: 'red', width: 3, dash: 'dash' },
       opacity: 0.55,
       hovertemplate: '<br><b>Time:</b>: %{x}<br><i>Slurm mem allocated</i>: %{y:.1f}G',
       showlegend: false,
@@ -26,7 +27,7 @@ export default function ServerChart({ server }) {
       mode: 'lines',
       name: 'Slurm CPU alloc',
       yaxis: 'y',
-      line: { color: 'purple', width: 2, dash: 'dot' },
+      line: { color: 'blue', width: 2, dash: 'dot' },
       opacity: 0.9,
       hovertemplate: '<br><b>Time:</b>: %{x}<br><i>Slurm CPUs allocated</i>: %{y:.1f}',
       showlegend: false,
