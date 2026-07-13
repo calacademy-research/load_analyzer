@@ -1,6 +1,6 @@
 import Plot from '../plot';
 
-export default function ServerChart({ server }) {
+export default function ServerChart({ server, proportional = false }) {
   const { hostname, cpu_limit, mem_limit, cpu, mem, gpu, slurm } = server;
   const traces = [];
 
@@ -117,15 +117,23 @@ export default function ServerChart({ server }) {
     });
   }
 
+  // Absolute scaling (default): axes fixed to the machine's full spec so
+  // charts are comparable and headroom is visible. Proportional (header
+  // button): autoscale, so brief spikes above capacity stay visible.
   const layout = {
     title: `CPU and memory usage on ${hostname}`,
     xaxis: { title: 'Time' },
-    // Absolute scaling: axes default to the machine's full spec so charts are
-    // comparable and headroom is visible (zoom still works; spikes above the
-    // spec clip but hover shows the real value).
-    yaxis: { title: 'CPU usage', rangemode: 'tozero', side: 'left', range: [0, cpu_limit] },
-    yaxis2: { title: 'Memory usage', rangemode: 'tozero', side: 'right', overlaying: 'y', range: [0, mem_limit] },
-    uirevision: 'preserve UI state during updates',
+    yaxis: {
+      title: 'CPU usage', rangemode: 'tozero', side: 'left',
+      ...(proportional ? {} : { range: [0, cpu_limit] }),
+    },
+    yaxis2: {
+      title: 'Memory usage', rangemode: 'tozero', side: 'right', overlaying: 'y',
+      ...(proportional ? {} : { range: [0, mem_limit] }),
+    },
+    // Keyed to the axis mode: same value preserves zoom/pan across data
+    // refreshes; a mode toggle changes it so the new ranges actually apply.
+    uirevision: proportional ? 'proportional' : 'absolute',
     margin: { t: 40, b: 40, l: 60, r: 60 },
     height: 350,
   };

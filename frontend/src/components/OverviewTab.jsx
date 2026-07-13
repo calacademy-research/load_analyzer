@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useServerData } from '../hooks/useServerData';
 import ServerChart from './ServerChart';
 
@@ -11,6 +12,9 @@ const SERVER_COLORS = {
 
 export default function OverviewTab({ startDate, endDate }) {
   const { data, loading, error } = useServerData('overview', startDate, endDate);
+  // Per-host axis mode: absolute (default, axes fixed to machine spec) vs
+  // proportional (autoscale, so brief spikes above capacity stay visible).
+  const [proportional, setProportional] = useState({});
 
   if (loading && !data) return <div style={{ padding: '40px', textAlign: 'center' }}>Loading...</div>;
   if (error) return <div style={{ padding: '20px', color: 'red' }}>Error: {error}</div>;
@@ -38,15 +42,35 @@ export default function OverviewTab({ startDate, endDate }) {
                 fontSize: '15px',
                 fontWeight: 'bold',
                 letterSpacing: '0.3px',
+                display: 'flex',
+                alignItems: 'center',
               }}
             >
               {server.hostname}
               <span style={{ fontWeight: 'normal', opacity: 0.8, marginLeft: '12px', fontSize: '13px' }}>
                 {server.cpu_limit} cores / {server.mem_limit} GB
               </span>
+              <button
+                onClick={() =>
+                  setProportional((p) => ({ ...p, [server.hostname]: !p[server.hostname] }))
+                }
+                style={{
+                  marginLeft: 'auto',
+                  background: 'rgba(255,255,255,0.2)',
+                  border: '1px solid rgba(255,255,255,0.6)',
+                  borderRadius: '4px',
+                  color: '#fff',
+                  fontSize: '12px',
+                  fontWeight: 'normal',
+                  padding: '3px 10px',
+                  cursor: 'pointer',
+                }}
+              >
+                {proportional[server.hostname] ? 'Make absolute' : 'Make proportional'}
+              </button>
             </div>
             <div style={{ padding: '4px 8px 8px' }}>
-              <ServerChart server={server} />
+              <ServerChart server={server} proportional={!!proportional[server.hostname]} />
             </div>
           </div>
         );
