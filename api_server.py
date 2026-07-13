@@ -240,6 +240,20 @@ async def get_overview(
             gpu_processes=('gpu_processes', 'first'),
         ).reset_index()
 
+    # Slurm per-node allocation (collected every minute by slurm_capacity_collector).
+    # Always resample: rows are per-minute, chart buckets are >= 5min.
+    alloc_df = _query_df(
+        "SELECT snapshot_datetime, host, alloc_cpus, alloc_mem_gb "
+        "FROM slurm_node_alloc WHERE snapshot_datetime BETWEEN :start AND :end",
+        {'start': start_str, 'end': end_str}
+    )
+    if not alloc_df.empty:
+        alloc_df['snapshot_datetime'] = alloc_df['snapshot_datetime'].dt.floor(bucket)
+        alloc_df = alloc_df.groupby(['snapshot_datetime', 'host']).agg(
+            alloc_cpus=('alloc_cpus', 'mean'),
+            alloc_mem_gb=('alloc_mem_gb', 'mean'),
+        ).reset_index()
+
     for hostname, cpu_limit, mem_limit in SERVERS:
         server_entry = {
             "hostname": hostname,
@@ -249,6 +263,7 @@ async def get_overview(
             "cpu": None,
             "mem": None,
             "gpu": None,
+            "slurm": None,
         }
 
         host_df = df[df['host'] == hostname] if not df.empty else pd.DataFrame()
@@ -289,6 +304,16 @@ async def get_overview(
                 "raw_values": mem_by_time['mem'].round(2).tolist(),
                 "hover": [mem_hover.get(ts, []) for ts in mem_by_time['snapshot_datetime']],
             }
+
+        # Slurm allocation data (only Slurm nodes have rows)
+        if not alloc_df.empty:
+            host_alloc = alloc_df[alloc_df['host'] == hostname].sort_values('snapshot_datetime')
+            if not host_alloc.empty:
+                server_entry["slurm"] = {
+                    "timestamps": host_alloc['snapshot_datetime'].dt.strftime('%Y-%m-%dT%H:%M:%S').tolist(),
+                    "alloc_cpus": host_alloc['alloc_cpus'].round(1).tolist(),
+                    "alloc_mem_gb": host_alloc['alloc_mem_gb'].round(1).tolist(),
+                }
 
         # GPU data
         if hostname in GPU_HOSTS and not gpu_df.empty:

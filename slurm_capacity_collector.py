@@ -57,6 +57,8 @@ def can_accept(state):
 def collect():
     # ---- cluster capacity: main-pool nodes that can accept jobs (dynamic) ----
     cpu_total = cpu_used = mem_total_mb = mem_used_mb = nodes = 0
+    node_rows = []
+    snap_minute = datetime.now().replace(second=0, microsecond=0)
     for line in ssh('scontrol show node -o').splitlines():
         if not line.strip():
             continue
@@ -64,6 +66,18 @@ def collect():
         def g(k, d='0'):
             m = re.search(rf'\b{k}=(\S+)', line)
             return m.group(1) if m else d
+        # Per-node allocation snapshot -> slurm_node_alloc (ALL nodes, any
+        # partition, drained included — a draining node still holds its jobs'
+        # allocation, which is what the Overview charts need to show).
+        node_rows.append({
+            'snapshot_datetime': snap_minute,
+            'host': g('NodeName', ''),
+            'alloc_cpus': int(g('CPUAlloc')),
+            'total_cpus': int(g('CPUTot')),
+            'alloc_mem_gb': round(int(g('AllocMem')) / 1024, 1),
+            'total_mem_gb': round(int(g('RealMemory')) / 1024, 1),
+            'state': g('State', ''),
+        })
         if POOL not in g('Partitions', '').split(','):
             continue
         if not can_accept(g('State', '')):
@@ -117,10 +131,10 @@ def collect():
         })
 
     return {'cluster': cluster, 'users': users,
-            'updated_at': datetime.now().isoformat(timespec='seconds')}
+            'updated_at': datetime.now().isoformat(timespec='seconds')}, node_rows
 
 
-def write(snapshot):
+def write(snapshot, node_rows):
     eng = create_engine(
         f"mysql+pymysql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@"
         f"{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
@@ -129,10 +143,25 @@ def write(snapshot):
                        "(k VARCHAR(32) PRIMARY KEY, v MEDIUMTEXT, updated_at DATETIME)"))
         c.execute(text("REPLACE INTO slurm_live_snapshot (k, v, updated_at) "
                        "VALUES ('snapshot', :v, NOW())"), {'v': json.dumps(snapshot)})
+        c.execute(text("CREATE TABLE IF NOT EXISTS slurm_node_alloc ("
+                       "snapshot_datetime DATETIME NOT NULL, "
+                       "host VARCHAR(64) NOT NULL, "
+                       "alloc_cpus INT NOT NULL, "
+                       "total_cpus INT NOT NULL, "
+                       "alloc_mem_gb FLOAT NOT NULL, "
+                       "total_mem_gb FLOAT NOT NULL, "
+                       "state VARCHAR(64), "
+                       "PRIMARY KEY (snapshot_datetime, host))"))
+        if node_rows:
+            c.execute(text("REPLACE INTO slurm_node_alloc "
+                           "(snapshot_datetime, host, alloc_cpus, total_cpus, "
+                           "alloc_mem_gb, total_mem_gb, state) "
+                           "VALUES (:snapshot_datetime, :host, :alloc_cpus, :total_cpus, "
+                           ":alloc_mem_gb, :total_mem_gb, :state)"), node_rows)
 
 
 if __name__ == '__main__':
-    snap = collect()
-    write(snap)
+    snap, node_rows = collect()
+    write(snap, node_rows)
     json.dump(snap, sys.stdout, indent=2)
     print()
