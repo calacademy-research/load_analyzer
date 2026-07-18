@@ -243,16 +243,40 @@ async def get_overview(
     # Slurm per-node allocation (collected every minute by slurm_capacity_collector).
     # Always resample: rows are per-minute, chart buckets are >= 5min.
     alloc_df = _query_df(
-        "SELECT snapshot_datetime, host, alloc_cpus, alloc_mem_gb "
+        "SELECT snapshot_datetime, host, alloc_cpus, alloc_mem_gb, state "
         "FROM slurm_node_alloc WHERE snapshot_datetime BETWEEN :start AND :end",
         {'start': start_str, 'end': end_str}
     )
     if not alloc_df.empty:
+        # Draining flag per bucket: a node is "draining" whenever its Slurm
+        # state carries the DRAIN flag (IDLE+DRAIN, MIXED+DRAIN, ...). Aggregated
+        # with max so any draining minute in the bucket marks the whole bucket.
+        alloc_df['drain'] = alloc_df['state'].astype(str).str.upper().str.contains('DRAIN')
         alloc_df['snapshot_datetime'] = alloc_df['snapshot_datetime'].dt.floor(bucket)
         alloc_df = alloc_df.groupby(['snapshot_datetime', 'host']).agg(
             alloc_cpus=('alloc_cpus', 'mean'),
             alloc_mem_gb=('alloc_mem_gb', 'mean'),
+            drain=('drain', 'max'),
         ).reset_index()
+
+    # Reboot instants per host: BootTime jumps forward between consecutive
+    # minutes. Computed in SQL (LAG) off the raw per-minute rows so each marker
+    # sits at the exact reboot time, independent of the chart bucket. The
+    # IS NOT NULL filter keeps the result free of NaT (which _query_df would
+    # otherwise clobber to 0).
+    reboot_df = _query_df(
+        "SELECT host, boot_time FROM ("
+        "  SELECT host, boot_time, "
+        "         LAG(boot_time) OVER (PARTITION BY host ORDER BY snapshot_datetime) AS prev "
+        "  FROM slurm_node_alloc "
+        "  WHERE snapshot_datetime BETWEEN :start AND :end AND boot_time IS NOT NULL"
+        ") t WHERE prev IS NOT NULL AND boot_time > prev",
+        {'start': start_str, 'end': end_str}
+    )
+    reboots_by_host = {}
+    if not reboot_df.empty:
+        for h, grp in reboot_df.groupby('host'):
+            reboots_by_host[h] = grp['boot_time'].dt.strftime('%Y-%m-%dT%H:%M:%S').tolist()
 
     for hostname, cpu_limit, mem_limit in SERVERS:
         server_entry = {
@@ -313,6 +337,8 @@ async def get_overview(
                     "timestamps": host_alloc['snapshot_datetime'].dt.strftime('%Y-%m-%dT%H:%M:%S').tolist(),
                     "alloc_cpus": host_alloc['alloc_cpus'].round(1).tolist(),
                     "alloc_mem_gb": host_alloc['alloc_mem_gb'].round(1).tolist(),
+                    "drain": host_alloc['drain'].astype(bool).tolist(),
+                    "reboots": reboots_by_host.get(hostname, []),
                 }
 
         # GPU data

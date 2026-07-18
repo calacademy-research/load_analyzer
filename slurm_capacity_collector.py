@@ -54,6 +54,19 @@ def can_accept(state):
     return not any(f in toks[1:] for f in BLOCKED_FLAGS)
 
 
+def parse_boot(s):
+    """Parse a scontrol BootTime ('2026-07-13T14:41:33') to a datetime, or None.
+
+    A down/unreachable node reports 'Unknown'/'None'. The Overview charts diff
+    this value across snapshots to detect reboots (BootTime jumps forward)."""
+    if not s or s in ('Unknown', 'None', '(null)'):
+        return None
+    try:
+        return datetime.strptime(s, '%Y-%m-%dT%H:%M:%S')
+    except ValueError:
+        return None
+
+
 def collect():
     # ---- cluster capacity: main-pool nodes that can accept jobs (dynamic) ----
     cpu_total = cpu_used = mem_total_mb = mem_used_mb = nodes = 0
@@ -77,6 +90,7 @@ def collect():
             'alloc_mem_gb': round(int(g('AllocMem')) / 1024, 1),
             'total_mem_gb': round(int(g('RealMemory')) / 1024, 1),
             'state': g('State', ''),
+            'boot_time': parse_boot(g('BootTime', '')),
         })
         if POOL not in g('Partitions', '').split(','):
             continue
@@ -151,13 +165,22 @@ def write(snapshot, node_rows):
                        "alloc_mem_gb FLOAT NOT NULL, "
                        "total_mem_gb FLOAT NOT NULL, "
                        "state VARCHAR(64), "
+                       "boot_time DATETIME NULL, "
                        "PRIMARY KEY (snapshot_datetime, host))"))
+        # Migrate an older table that predates the boot_time column (MySQL has
+        # no ADD COLUMN IF NOT EXISTS, so check information_schema first).
+        have_boot = c.execute(text(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() AND table_name = 'slurm_node_alloc' "
+            "AND column_name = 'boot_time'")).scalar()
+        if not have_boot:
+            c.execute(text("ALTER TABLE slurm_node_alloc ADD COLUMN boot_time DATETIME NULL"))
         if node_rows:
             c.execute(text("REPLACE INTO slurm_node_alloc "
                            "(snapshot_datetime, host, alloc_cpus, total_cpus, "
-                           "alloc_mem_gb, total_mem_gb, state) "
+                           "alloc_mem_gb, total_mem_gb, state, boot_time) "
                            "VALUES (:snapshot_datetime, :host, :alloc_cpus, :total_cpus, "
-                           ":alloc_mem_gb, :total_mem_gb, :state)"), node_rows)
+                           ":alloc_mem_gb, :total_mem_gb, :state, :boot_time)"), node_rows)
 
 
 if __name__ == '__main__':

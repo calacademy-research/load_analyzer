@@ -117,6 +117,70 @@ export default function ServerChart({ server, proportional = false }) {
     });
   }
 
+  // Node-state overlays (Slurm nodes only): amber bands mark stretches where
+  // the node was draining (state carried the DRAIN flag), and vertical black
+  // bars mark reboot events (BootTime jumped forward). Both are drawn as
+  // layout shapes so they span the full chart height regardless of y-scale.
+  const shapes = [];
+  let hasDrain = false;
+  let hasReboot = false;
+  if (slurm) {
+    const ts = slurm.timestamps || [];
+    const drain = slurm.drain || [];
+    // Timestamps are naive ISO strings that Plotly plots in UTC; parse them the
+    // same way (append 'Z') so any computed edge stays on the same axis. A naive
+    // `new Date(str)` would be read as local time and land hours off.
+    const asUtc = (s) => Date.parse(s + 'Z');
+    const toNaive = (ms) => new Date(ms).toISOString().slice(0, 19);
+    // One bucket's worth of time, so a band (or a just-started drain that only
+    // touches the last sample) has visible width rather than collapsing to a line.
+    const bucketMs = ts.length > 1 ? (asUtc(ts[1]) - asUtc(ts[0])) : 5 * 60 * 1000;
+    let i = 0;
+    while (i < ts.length) {
+      if (drain[i]) {
+        const startTs = ts[i];
+        while (i < ts.length && drain[i]) i++;
+        const lastOn = i - 1;                       // last still-draining sample
+        const endTs = i < ts.length
+          ? ts[i]                                    // first recovered sample
+          : toNaive(asUtc(ts[lastOn]) + bucketMs);   // ongoing: extend one bucket
+        shapes.push({
+          type: 'rect', xref: 'x', yref: 'paper',
+          x0: startTs, x1: endTs, y0: 0, y1: 1,
+          fillcolor: 'rgba(230,150,50,0.18)', line: { width: 0 }, layer: 'below',
+        });
+        hasDrain = true;
+      } else {
+        i++;
+      }
+    }
+    (slurm.reboots || []).forEach((t) => {
+      shapes.push({
+        type: 'line', xref: 'x', yref: 'paper',
+        x0: t, x1: t, y0: 0, y1: 1,
+        line: { color: 'black', width: 1.5 }, layer: 'above',
+      });
+      hasReboot = true;
+    });
+    // Legend proxies + hoverable reboot markers so the overlays are labeled.
+    if (hasDrain) {
+      traces.push({
+        x: [ts[0]], y: [null], type: 'scatter', mode: 'markers',
+        marker: { symbol: 'square', size: 12, color: 'rgba(230,150,50,0.55)' },
+        name: 'Draining', hoverinfo: 'skip', showlegend: true,
+      });
+    }
+    if (hasReboot) {
+      traces.push({
+        x: slurm.reboots, y: slurm.reboots.map(() => 0),
+        type: 'scatter', mode: 'markers', yaxis: 'y',
+        marker: { symbol: 'triangle-up', size: 10, color: 'black' },
+        name: 'Reboot', hovertemplate: '<b>Reboot</b><br>%{x}<extra></extra>',
+        showlegend: true,
+      });
+    }
+  }
+
   // Absolute scaling (default): axes fixed to the machine's full spec so
   // charts are comparable and headroom is visible. Proportional (header
   // button): autoscale, so brief spikes above capacity stay visible.
@@ -130,6 +194,12 @@ export default function ServerChart({ server, proportional = false }) {
     yaxis2: {
       title: 'Memory usage', rangemode: 'tozero', side: 'right', overlaying: 'y',
       ...(proportional ? {} : { range: [0, mem_limit] }),
+    },
+    shapes,
+    showlegend: hasDrain || hasReboot,
+    legend: {
+      x: 1, y: 1, xanchor: 'right', yanchor: 'top',
+      bgcolor: 'rgba(255,255,255,0.6)', font: { size: 10 },
     },
     // Keyed to the axis mode: same value preserves zoom/pan across data
     // refreshes; a mode toggle changes it so the new ranges actually apply.
