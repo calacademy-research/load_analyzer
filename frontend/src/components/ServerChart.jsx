@@ -214,7 +214,7 @@ export default function ServerChart({ server, proportional = false }) {
       layout={layout}
       useResizeHandler
       style={{ width: '100%' }}
-      config={{ responsive: true }}
+      config={{ responsive: true, displaylogo: false }}
     />
   );
 }
