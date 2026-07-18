@@ -8,28 +8,44 @@ export default function ServerChart({ server, proportional = false }) {
   // red = memory, blue = CPU; pushed first so usage lines draw on top).
   // Only Slurm nodes have this data; allocation persists on draining nodes.
   if (slurm) {
+    // "What's scheduled" hover: the jobs holding each node's allocation. Only
+    // populated from the point per-node job collection started, so older buckets
+    // fall back to just the allocated totals. Each dotted line shows the same
+    // job list (the allocation the scheduler granted those jobs).
+    const jobsHover = (slurm.jobs || []).map((jobList) => {
+      if (!jobList || jobList.length === 0) return '';
+      const lines = jobList.map(
+        (j) => `• ${j.user} (job ${j.jobid}) — ${j.cpus} cpu, ${j.mem_gb} GB`
+      );
+      return `<br><b>Scheduled here (${jobList.length}):</b><br>${lines.join('<br>')}`;
+    });
+    const hasJobs = jobsHover.some((s) => s !== '');
     traces.push({
       x: slurm.timestamps,
       y: slurm.alloc_mem_gb,
+      customdata: hasJobs ? jobsHover : undefined,
       type: 'scatter',
       mode: 'lines',
       name: 'Slurm mem alloc',
       yaxis: 'y2',
       line: { color: 'red', width: 3, dash: 'dash' },
       opacity: 0.55,
-      hovertemplate: '<br><b>Time:</b>: %{x}<br><i>Slurm mem allocated</i>: %{y:.1f}G',
+      hovertemplate: '<br><b>Time:</b>: %{x}<br><i>Memory the scheduler reserved</i>: %{y:.1f}G'
+        + (hasJobs ? '%{customdata}' : ''),
       showlegend: false,
     });
     traces.push({
       x: slurm.timestamps,
       y: slurm.alloc_cpus,
+      customdata: hasJobs ? jobsHover : undefined,
       type: 'scatter',
       mode: 'lines',
       name: 'Slurm CPU alloc',
       yaxis: 'y',
       line: { color: 'blue', width: 2, dash: 'dot' },
       opacity: 0.9,
-      hovertemplate: '<br><b>Time:</b>: %{x}<br><i>Slurm CPUs allocated</i>: %{y:.1f}',
+      hovertemplate: '<br><b>Time:</b>: %{x}<br><i>CPU cores the scheduler reserved</i>: %{y:.1f}'
+        + (hasJobs ? '%{customdata}' : ''),
       showlegend: false,
     });
   }
@@ -135,21 +151,41 @@ export default function ServerChart({ server, proportional = false }) {
     // One bucket's worth of time, so a band (or a just-started drain that only
     // touches the last sample) has visible width rather than collapsing to a line.
     const bucketMs = ts.length > 1 ? (asUtc(ts[1]) - asUtc(ts[0])) : 5 * 60 * 1000;
+    const prettyT = (s) => `${s.slice(5, 10)} ${s.slice(11, 16)}`;  // "MM-DD HH:MM"
+    // Invisible hover targets carrying a plain-language explanation, spread over
+    // each drain band so hovering anywhere on the amber region explains it.
+    const drainHoverX = [];
+    const drainHoverText = [];
     let i = 0;
     while (i < ts.length) {
       if (drain[i]) {
         const startTs = ts[i];
+        const bandStart = i;
         while (i < ts.length && drain[i]) i++;
-        const lastOn = i - 1;                       // last still-draining sample
-        const endTs = i < ts.length
-          ? ts[i]                                    // first recovered sample
-          : toNaive(asUtc(ts[lastOn]) + bucketMs);   // ongoing: extend one bucket
+        const ongoing = i >= ts.length;             // drain reaches the latest data
+        const lastOn = i - 1;                        // last still-draining sample
+        const endTs = ongoing
+          ? toNaive(asUtc(ts[lastOn]) + bucketMs)     // extend one bucket
+          : ts[i];                                    // first recovered sample
         shapes.push({
           type: 'rect', xref: 'x', yref: 'paper',
           x0: startTs, x1: endTs, y0: 0, y1: 1,
           fillcolor: 'rgba(230,150,50,0.18)', line: { width: 0 }, layer: 'below',
         });
         hasDrain = true;
+        const msg = ongoing
+          ? `<b>🔧 Automatic patching under way</b><br>`
+            + `${hostname} stopped accepting new jobs at ${prettyT(startTs)} so it can install `
+            + `system & security updates.<br>`
+            + `It's waiting for the jobs still running to finish, then it reboots itself to apply `
+            + `them — it comes back on its own. Nothing to do.`
+          : `<b>🔧 Automatic patching</b><br>`
+            + `${hostname} was paused for system & security updates from ${prettyT(startTs)} to `
+            + `${prettyT(endTs)}, then rebooted.<br>Back in service.`;
+        for (let k = bandStart; k <= lastOn; k++) {
+          drainHoverX.push(ts[k]);
+          drainHoverText.push(msg);
+        }
       } else {
         i++;
       }
@@ -162,20 +198,32 @@ export default function ServerChart({ server, proportional = false }) {
       });
       hasReboot = true;
     });
-    // Legend proxies + hoverable reboot markers so the overlays are labeled.
+    // Legend proxy + invisible top-of-band hover targets for the drain overlay.
     if (hasDrain) {
       traces.push({
         x: [ts[0]], y: [null], type: 'scatter', mode: 'markers',
         marker: { symbol: 'square', size: 12, color: 'rgba(230,150,50,0.55)' },
-        name: 'Draining', hoverinfo: 'skip', showlegend: true,
+        name: 'Draining (patching)', hoverinfo: 'skip', showlegend: true,
+      });
+      traces.push({
+        x: drainHoverX, y: drainHoverX.map(() => 0.94), customdata: drainHoverText,
+        type: 'scatter', mode: 'markers', yaxis: 'y3',
+        marker: { size: 16, color: 'rgba(0,0,0,0)' },
+        hovertemplate: '%{customdata}<extra></extra>',
+        hoverlabel: { bgcolor: 'rgba(120,72,0,0.94)', bordercolor: 'rgba(230,150,50,1)' },
+        showlegend: false,
       });
     }
+    // Reboot markers double as the legend entry and carry a plain-language note.
     if (hasReboot) {
       traces.push({
         x: slurm.reboots, y: slurm.reboots.map(() => 0),
         type: 'scatter', mode: 'markers', yaxis: 'y',
-        marker: { symbol: 'triangle-up', size: 10, color: 'black' },
-        name: 'Reboot', hovertemplate: '<b>Reboot</b><br>%{x}<extra></extra>',
+        marker: { symbol: 'triangle-up', size: 11, color: 'black' },
+        name: 'Reboot (patch)',
+        hovertemplate: '<b>🔄 Automatic patch reboot</b><br>%{x}<br>'
+          + 'Rebooted to finish installing system & security updates once its jobs '
+          + 'had drained. Back in service.<extra></extra>',
         showlegend: true,
       });
     }
@@ -195,6 +243,9 @@ export default function ServerChart({ server, proportional = false }) {
       title: 'Memory usage', rangemode: 'tozero', side: 'right', overlaying: 'y',
       ...(proportional ? {} : { range: [0, mem_limit] }),
     },
+    // Hidden [0,1] overlay axis so the drain hover targets sit near the top of
+    // the band regardless of whether the data axes are absolute or autoscaled.
+    yaxis3: { overlaying: 'y', range: [0, 1], visible: false, fixedrange: true },
     shapes,
     showlegend: hasDrain || hasReboot,
     legend: {

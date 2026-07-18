@@ -243,20 +243,27 @@ async def get_overview(
     # Slurm per-node allocation (collected every minute by slurm_capacity_collector).
     # Always resample: rows are per-minute, chart buckets are >= 5min.
     alloc_df = _query_df(
-        "SELECT snapshot_datetime, host, alloc_cpus, alloc_mem_gb, state "
+        "SELECT snapshot_datetime, host, alloc_cpus, alloc_mem_gb, state, jobs "
         "FROM slurm_node_alloc WHERE snapshot_datetime BETWEEN :start AND :end",
         {'start': start_str, 'end': end_str}
     )
     if not alloc_df.empty:
+        alloc_df = alloc_df.sort_values('snapshot_datetime')
         # Draining flag per bucket: a node is "draining" whenever its Slurm
         # state carries the DRAIN flag (IDLE+DRAIN, MIXED+DRAIN, ...). Aggregated
         # with max so any draining minute in the bucket marks the whole bucket.
         alloc_df['drain'] = alloc_df['state'].astype(str).str.upper().str.contains('DRAIN')
+        # jobs = JSON string of the scheduled jobs on that node (rows predating
+        # the column are NULL -> _query_df turns them into 0, so coerce anything
+        # that isn't a JSON array to '[]'). 'last' keeps the freshest in-bucket.
+        alloc_df['jobs'] = alloc_df['jobs'].apply(
+            lambda v: v if isinstance(v, str) and v.startswith('[') else '[]')
         alloc_df['snapshot_datetime'] = alloc_df['snapshot_datetime'].dt.floor(bucket)
         alloc_df = alloc_df.groupby(['snapshot_datetime', 'host']).agg(
             alloc_cpus=('alloc_cpus', 'mean'),
             alloc_mem_gb=('alloc_mem_gb', 'mean'),
             drain=('drain', 'max'),
+            jobs=('jobs', 'last'),
         ).reset_index()
 
     # Reboot instants per host: BootTime jumps forward between consecutive
@@ -339,6 +346,7 @@ async def get_overview(
                     "alloc_mem_gb": host_alloc['alloc_mem_gb'].round(1).tolist(),
                     "drain": host_alloc['drain'].astype(bool).tolist(),
                     "reboots": reboots_by_host.get(hostname, []),
+                    "jobs": [json.loads(j) for j in host_alloc['jobs']],
                 }
 
         # GPU data

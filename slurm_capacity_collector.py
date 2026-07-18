@@ -72,6 +72,31 @@ def collect():
     cpu_total = cpu_used = mem_total_mb = mem_used_mb = nodes = 0
     node_rows = []
     snap_minute = datetime.now().replace(second=0, microsecond=0)
+
+    # ---- per-node running-job breakdown -> slurm_node_alloc.jobs (feeds the
+    #      "what's scheduled" hover on the Overview allocation lines) ----
+    jobs_by_node = {}
+    for line in ssh('squeue -t RUNNING -h -O NodeList:220,UserName:40,JobID:24,tres-alloc:400').splitlines():
+        nodelist = line[0:220].strip()
+        if not nodelist:
+            continue
+        user = line[220:260].strip()
+        jobid = line[260:284].strip()
+        tres = line[284:].strip()
+        cm = re.search(r'cpu=(\d+)', tres)
+        mm = re.search(r'mem=([\d.]+[KMGTP]?)', tres)
+        job = {
+            'user': user, 'jobid': jobid,
+            'cpus': int(cm.group(1)) if cm else 0,
+            'mem_gb': round(tres_mem_gb(mm.group(1)), 1) if mm else 0.0,
+        }
+        # These nodes have distinct names, so a multi-node job lists them
+        # comma-separated (no numeric bracket ranges to expand).
+        for node in nodelist.split(','):
+            node = node.strip()
+            if node:
+                jobs_by_node.setdefault(node, []).append(job)
+
     for line in ssh('scontrol show node -o').splitlines():
         if not line.strip():
             continue
@@ -91,6 +116,7 @@ def collect():
             'total_mem_gb': round(int(g('RealMemory')) / 1024, 1),
             'state': g('State', ''),
             'boot_time': parse_boot(g('BootTime', '')),
+            'jobs': json.dumps(jobs_by_node.get(g('NodeName', ''), [])),
         })
         if POOL not in g('Partitions', '').split(','):
             continue
@@ -166,21 +192,23 @@ def write(snapshot, node_rows):
                        "total_mem_gb FLOAT NOT NULL, "
                        "state VARCHAR(64), "
                        "boot_time DATETIME NULL, "
+                       "jobs TEXT, "
                        "PRIMARY KEY (snapshot_datetime, host))"))
-        # Migrate an older table that predates the boot_time column (MySQL has
-        # no ADD COLUMN IF NOT EXISTS, so check information_schema first).
-        have_boot = c.execute(text(
-            "SELECT COUNT(*) FROM information_schema.columns "
-            "WHERE table_schema = DATABASE() AND table_name = 'slurm_node_alloc' "
-            "AND column_name = 'boot_time'")).scalar()
-        if not have_boot:
-            c.execute(text("ALTER TABLE slurm_node_alloc ADD COLUMN boot_time DATETIME NULL"))
+        # Migrate an older table that predates a column (MySQL has no
+        # ADD COLUMN IF NOT EXISTS, so check information_schema first).
+        for col, ddl in (('boot_time', 'DATETIME NULL'), ('jobs', 'TEXT')):
+            have = c.execute(text(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = DATABASE() AND table_name = 'slurm_node_alloc' "
+                "AND column_name = :col"), {'col': col}).scalar()
+            if not have:
+                c.execute(text(f"ALTER TABLE slurm_node_alloc ADD COLUMN {col} {ddl}"))
         if node_rows:
             c.execute(text("REPLACE INTO slurm_node_alloc "
                            "(snapshot_datetime, host, alloc_cpus, total_cpus, "
-                           "alloc_mem_gb, total_mem_gb, state, boot_time) "
+                           "alloc_mem_gb, total_mem_gb, state, boot_time, jobs) "
                            "VALUES (:snapshot_datetime, :host, :alloc_cpus, :total_cpus, "
-                           ":alloc_mem_gb, :total_mem_gb, :state, :boot_time)"), node_rows)
+                           ":alloc_mem_gb, :total_mem_gb, :state, :boot_time, :jobs)"), node_rows)
 
 
 if __name__ == '__main__':
