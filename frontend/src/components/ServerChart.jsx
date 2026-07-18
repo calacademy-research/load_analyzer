@@ -161,6 +161,7 @@ export default function ServerChart({ server, proportional = false }) {
     // Invisible hover targets carrying a plain-language explanation, spread over
     // each drain band so hovering anywhere on the amber region explains it.
     const drainHoverX = [];
+    const drainHoverY = [];
     const drainHoverText = [];
     let i = 0;
     while (i < ts.length) {
@@ -188,9 +189,15 @@ export default function ServerChart({ server, proportional = false }) {
           : `<b>🔧 Automatic patching</b><br>`
             + `${hostname} was paused for system & security updates from ${prettyT(startTs)} to `
             + `${prettyT(endTs)}, then rebooted.<br>Back in service.`;
+        // Spread invisible hover targets over the whole band height (several
+        // y-levels) so hovering anywhere in the amber region shows the note,
+        // not just a thin strip at the top.
         for (let k = bandStart; k <= lastOn; k++) {
-          drainHoverX.push(ts[k]);
-          drainHoverText.push(msg);
+          for (const yLevel of [0.12, 0.37, 0.62, 0.87]) {
+            drainHoverX.push(ts[k]);
+            drainHoverY.push(yLevel);
+            drainHoverText.push(msg);
+          }
         }
       } else {
         i++;
@@ -209,12 +216,12 @@ export default function ServerChart({ server, proportional = false }) {
       traces.push({
         x: [ts[0]], y: [null], type: 'scatter', mode: 'markers',
         marker: { symbol: 'square', size: 12, color: 'rgba(230,150,50,0.55)' },
-        name: 'Draining (patching)', hoverinfo: 'skip', showlegend: true, legend: 'legend2',
+        name: 'Draining', hoverinfo: 'skip', showlegend: true, legend: 'legend2',
       });
       traces.push({
-        x: drainHoverX, y: drainHoverX.map(() => 0.94), customdata: drainHoverText,
+        x: drainHoverX, y: drainHoverY, customdata: drainHoverText,
         type: 'scatter', mode: 'markers', yaxis: 'y3',
-        marker: { size: 16, color: 'rgba(0,0,0,0)' },
+        marker: { size: 18, color: 'rgba(0,0,0,0)' },
         hovertemplate: '%{customdata}<extra></extra>',
         hoverlabel: { bgcolor: 'rgba(120,72,0,0.94)', bordercolor: 'rgba(230,150,50,1)' },
         showlegend: false,
@@ -226,7 +233,7 @@ export default function ServerChart({ server, proportional = false }) {
         x: slurm.reboots, y: slurm.reboots.map(() => 0),
         type: 'scatter', mode: 'markers', yaxis: 'y',
         marker: { symbol: 'triangle-up', size: 11, color: 'black' },
-        name: 'Reboot (patch)',
+        name: 'Reboot',
         hovertemplate: '<b>🔄 Automatic patch reboot</b><br>%{x}<br>'
           + 'Rebooted to finish installing system & security updates once its jobs '
           + 'had drained. Back in service.<extra></extra>',
