@@ -285,6 +285,45 @@ async def get_overview(
         for h, grp in reboot_df.groupby('host'):
             reboots_by_host[h] = grp['boot_time'].dt.strftime('%Y-%m-%dT%H:%M:%S').tolist()
 
+    # Historical per-job reconstruction for the reservation hover. Buckets that
+    # predate the squeue `jobs` collection (added 2026-07-17) have no per-job
+    # breakdown, so rebuild it from sacct history (slurm_jobs): a job occupies
+    # its node(s) from start_time to end_time. Exact squeue data wins where
+    # present; this only fills buckets whose list is empty AND alloc_cpus > 0
+    # (so idle buckets never grow phantom jobs from sloppy sacct end times).
+    # NULL end_time = still running — but ONLY for rows started after the
+    # collector's dark period (Mar 11 - May 21 2026); rows started before it
+    # can have NULL end_time forever because their completion was never seen.
+    hist_jobs = _query_df(
+        "SELECT username, job_id, alloc_cpus, req_mem_gb, node_list, "
+        "start_time, COALESCE(end_time, NOW()) AS end_time "
+        "FROM slurm_jobs "
+        "WHERE start_time IS NOT NULL AND start_time <= :end "
+        "AND COALESCE(end_time, NOW()) >= :start "
+        "AND (end_time IS NOT NULL OR start_time >= '2026-05-21') "
+        "AND node_list IS NOT NULL AND node_list NOT IN ('', 'None assigned')",
+        {'start': start_str, 'end': end_str}
+    )
+    hist_by_host = {}
+    if not hist_jobs.empty:
+        # Multi-node jobs list comma-separated hostnames (these nodes have
+        # distinct names, so no numeric bracket ranges to expand).
+        hist_jobs = hist_jobs.assign(host=hist_jobs['node_list'].str.split(',')).explode('host')
+        hist_jobs['host'] = hist_jobs['host'].str.strip()
+        for h, grp in hist_jobs.groupby('host'):
+            hist_by_host[h] = grp
+
+    def _hist_jobs_at(host, ts):
+        grp = hist_by_host.get(host)
+        if grp is None:
+            return []
+        live = grp[(grp['start_time'] <= ts) & (grp['end_time'] >= ts)]
+        return [
+            {'user': r.username, 'jobid': r.job_id,
+             'cpus': int(r.alloc_cpus), 'mem_gb': round(float(r.req_mem_gb), 1)}
+            for r in live.itertuples()
+        ]
+
     for hostname, cpu_limit, mem_limit in SERVERS:
         server_entry = {
             "hostname": hostname,
@@ -340,13 +379,22 @@ async def get_overview(
         if not alloc_df.empty:
             host_alloc = alloc_df[alloc_df['host'] == hostname].sort_values('snapshot_datetime')
             if not host_alloc.empty:
+                jobs_list = [json.loads(j) for j in host_alloc['jobs']]
+                jobs_list = [
+                    jl if jl else (_hist_jobs_at(hostname, ts) if cpus > 0 else [])
+                    for jl, ts, cpus in zip(
+                        jobs_list,
+                        host_alloc['snapshot_datetime'],
+                        host_alloc['alloc_cpus'],
+                    )
+                ]
                 server_entry["slurm"] = {
                     "timestamps": host_alloc['snapshot_datetime'].dt.strftime('%Y-%m-%dT%H:%M:%S').tolist(),
                     "alloc_cpus": host_alloc['alloc_cpus'].round(1).tolist(),
                     "alloc_mem_gb": host_alloc['alloc_mem_gb'].round(1).tolist(),
                     "drain": host_alloc['drain'].astype(bool).tolist(),
                     "reboots": reboots_by_host.get(hostname, []),
-                    "jobs": [json.loads(j) for j in host_alloc['jobs']],
+                    "jobs": jobs_list,
                 }
 
         # GPU data
