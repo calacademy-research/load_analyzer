@@ -8,45 +8,51 @@ export default function ServerChart({ server, proportional = false }) {
   // red = memory, blue = CPU; pushed first so usage lines draw on top).
   // Only Slurm nodes have this data; allocation persists on draining nodes.
   if (slurm) {
-    // "What's scheduled" hover: the jobs holding each node's allocation. Only
-    // populated from the point per-node job collection started, so older buckets
-    // fall back to just the allocated totals. Each dotted line shows the same
-    // job list (the allocation the scheduler granted those jobs).
-    const jobsHover = (slurm.jobs || []).map((jobList) => {
+    // "What's scheduled" hover: the jobs holding each node's reservation,
+    // formatted to match the real usage-line hover (a per-entry list under the
+    // total). CPU line lists each job's reserved cores; mem line its reserved
+    // GB — mirroring how the solid load/mem lines break down by user+cmd. Only
+    // populated from when per-node job collection started, so older buckets show
+    // just the reserved total.
+    const fmtJobs = (jobList, kind) => {
       if (!jobList || jobList.length === 0) return '';
-      const lines = jobList.map(
-        (j) => `• ${j.user} (job ${j.jobid}) — ${j.cpus} cpu, ${j.mem_gb} GB`
+      const lines = jobList.map((j) =>
+        kind === 'cpu'
+          ? `Host: ${hostname}  user: ${j.user}  cpus: ${j.cpus}  job: ${j.jobid}`
+          : `Host: ${hostname}  user: ${j.user}  mem: ${j.mem_gb}G  job: ${j.jobid}`
       );
-      return `<br><b>Scheduled here (${jobList.length}):</b><br>${lines.join('<br>')}`;
-    });
-    const hasJobs = jobsHover.some((s) => s !== '');
+      return `<br>${lines.join('<br>')}`;
+    };
+    const cpuJobsHover = (slurm.jobs || []).map((jl) => fmtJobs(jl, 'cpu'));
+    const memJobsHover = (slurm.jobs || []).map((jl) => fmtJobs(jl, 'mem'));
+    const hasJobs = (slurm.jobs || []).some((jl) => jl && jl.length > 0);
     traces.push({
       x: slurm.timestamps,
       y: slurm.alloc_mem_gb,
-      customdata: hasJobs ? jobsHover : undefined,
+      customdata: hasJobs ? memJobsHover : undefined,
       type: 'scatter',
       mode: 'lines',
-      name: 'Slurm mem alloc',
+      name: 'Memory reserved (Slurm)',
       yaxis: 'y2',
       line: { color: 'red', width: 3, dash: 'dash' },
       opacity: 0.55,
-      hovertemplate: '<br><b>Time:</b>: %{x}<br><i>Memory the scheduler reserved</i>: %{y:.1f}G'
+      hovertemplate: '<br><b>Time:</b>: %{x}<br><i>Memory reserved</i>: %{y:.1f}G'
         + (hasJobs ? '%{customdata}' : ''),
-      showlegend: false,
+      showlegend: true,
     });
     traces.push({
       x: slurm.timestamps,
       y: slurm.alloc_cpus,
-      customdata: hasJobs ? jobsHover : undefined,
+      customdata: hasJobs ? cpuJobsHover : undefined,
       type: 'scatter',
       mode: 'lines',
-      name: 'Slurm CPU alloc',
+      name: 'CPU reserved (Slurm)',
       yaxis: 'y',
       line: { color: 'blue', width: 2, dash: 'dot' },
       opacity: 0.9,
-      hovertemplate: '<br><b>Time:</b>: %{x}<br><i>CPU cores the scheduler reserved</i>: %{y:.1f}'
+      hovertemplate: '<br><b>Time:</b>: %{x}<br><i>CPU cores reserved</i>: %{y:.1f}'
         + (hasJobs ? '%{customdata}' : ''),
-      showlegend: false,
+      showlegend: true,
     });
   }
 
@@ -69,12 +75,12 @@ export default function ServerChart({ server, proportional = false }) {
       customdata,
       type: 'scatter',
       mode: 'lines',
-      name: 'Memory',
+      name: 'Memory used',
       yaxis: 'y2',
       line: { color: 'red', width: 3 },
       opacity: 0.7,
       hovertemplate,
-      showlegend: false,
+      showlegend: true,
     });
   }
 
@@ -94,12 +100,12 @@ export default function ServerChart({ server, proportional = false }) {
       customdata,
       type: 'scatter',
       mode: 'lines',
-      name: 'CPU',
+      name: 'CPU load',
       yaxis: 'y',
       line: { color: 'blue', width: 2 },
       opacity: 1,
       hovertemplate,
-      showlegend: false,
+      showlegend: true,
     });
   }
 
@@ -129,7 +135,7 @@ export default function ServerChart({ server, proportional = false }) {
         '<br>Memory: %{customdata[0]:.0f} / %{customdata[1]:.0f} MB' +
         '<br>GPUs: %{customdata[2]}' +
         '<br>%{customdata[4]}',
-      showlegend: false,
+      showlegend: true,
     });
   }
 
@@ -203,7 +209,7 @@ export default function ServerChart({ server, proportional = false }) {
       traces.push({
         x: [ts[0]], y: [null], type: 'scatter', mode: 'markers',
         marker: { symbol: 'square', size: 12, color: 'rgba(230,150,50,0.55)' },
-        name: 'Draining (patching)', hoverinfo: 'skip', showlegend: true,
+        name: 'Draining (patching)', hoverinfo: 'skip', showlegend: true, legend: 'legend2',
       });
       traces.push({
         x: drainHoverX, y: drainHoverX.map(() => 0.94), customdata: drainHoverText,
@@ -224,7 +230,7 @@ export default function ServerChart({ server, proportional = false }) {
         hovertemplate: '<b>🔄 Automatic patch reboot</b><br>%{x}<br>'
           + 'Rebooted to finish installing system & security updates once its jobs '
           + 'had drained. Back in service.<extra></extra>',
-        showlegend: true,
+        showlegend: true, legend: 'legend2',
       });
     }
   }
@@ -247,8 +253,16 @@ export default function ServerChart({ server, proportional = false }) {
     // the band regardless of whether the data axes are absolute or autoscaled.
     yaxis3: { overlaying: 'y', range: [0, 1], visible: false, fixedrange: true },
     shapes,
-    showlegend: hasDrain || hasReboot,
+    showlegend: true,
+    // Left legend: the four data traces (what each line is). Right legend
+    // (legend2): the drain/reboot overlays. Both sit inside the plot with a
+    // translucent background so they don't hide the series underneath.
     legend: {
+      x: 0.01, y: 1, xanchor: 'left', yanchor: 'top',
+      bgcolor: 'rgba(255,255,255,0.75)', bordercolor: '#ccc', borderwidth: 1,
+      font: { size: 10 },
+    },
+    legend2: {
       x: 1, y: 1, xanchor: 'right', yanchor: 'top',
       bgcolor: 'rgba(255,255,255,0.6)', font: { size: 10 },
     },
