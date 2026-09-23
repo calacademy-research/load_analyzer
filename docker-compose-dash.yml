@@ -7,6 +7,11 @@ services:
       dockerfile: Dockerfile
     restart: always
     network_mode: "host"
+    volumes:
+      # *.calacademy.org wildcard, written here by the genomics-ansible
+      # wildcard-cert role. Mounted as a DIRECTORY so a renewed file is seen
+      # after the restart the role performs.
+      - /etc/ssl/calacademy:/etc/ssl/calacademy:ro
     extra_hosts:
       - "alice:10.4.90.183"
       - "rosalindf:10.4.90.182"
